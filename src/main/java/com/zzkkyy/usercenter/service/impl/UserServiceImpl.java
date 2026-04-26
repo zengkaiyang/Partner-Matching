@@ -2,21 +2,31 @@ package com.zzkkyy.usercenter.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.google.gson.Gson;
+import com.google.gson.TypeAdapter;
+import com.google.gson.reflect.TypeToken;
 import com.zzkkyy.usercenter.common.ErrorCode;
 import com.zzkkyy.usercenter.exception.BusinessException;
 import com.zzkkyy.usercenter.mapper.UserMapper;
 import com.zzkkyy.usercenter.model.domain.User;
+import com.zzkkyy.usercenter.model.vo.UserVO;
 import com.zzkkyy.usercenter.service.UserService;
+import com.zzkkyy.usercenter.utils.AlgorithmUtils;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.math3.util.Pair;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.DigestUtils;
 
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
+import static com.zzkkyy.usercenter.contant.UserConstant.ADMIN_ROLE;
 import static com.zzkkyy.usercenter.contant.UserConstant.USER_LOGIN_STATE;
 
 /**
@@ -149,6 +159,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         safetyUser.setUserRole(user.getUserRole());
         safetyUser.setUserStatus(user.getUserStatus());
         safetyUser.setCreateTime(user.getCreateTime());
+        safetyUser.setTags(user.getTags());
         return safetyUser;
     }
 
@@ -162,6 +173,149 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         request.getSession().removeAttribute(USER_LOGIN_STATE);
         return 1;
     }
+
+    /**
+     * 根据标签搜索用户内存过滤
+     *
+     * @param tagNameList 用户拥有的标签
+     * @return
+     */
+    @Override
+    public List<User> searchUsersByTags(List<String> tagNameList) {
+        if (CollectionUtils.isEmpty(tagNameList)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        // 1. 先查询所有用户
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        List<User> userList = userMapper.selectList(queryWrapper);
+        Gson gson = new Gson();
+        // 2. 在内存中判断是否包含要求的标签
+        return userList.stream().filter(user -> {
+            String tagsStr = user.getTags();
+            Set<String> tempTagNameSet = gson.fromJson(tagsStr, new TypeToken<Set<String>>() {
+            }.getType());
+            tempTagNameSet = Optional.ofNullable(tempTagNameSet).orElse(new HashSet<>());
+            for (String tagName : tagNameList) {
+                if (!tempTagNameSet.contains(tagName)) {
+                    return false;
+                }
+            }
+            return true;
+        }).map(this::getSafetyUser).collect(Collectors.toList());
+    }
+
+    @Override
+    public int updateUser(User user,User loginUser) {
+        long userId = user.getId();
+        if(userId <= 0){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        //如果是管理员，允许跟新其他的任意用户
+        //若不是管理员，只允许跟新自己信息
+        if(!isAdmin(loginUser) && userId != loginUser.getId()){
+            throw new BusinessException(ErrorCode.NO_AUTH);
+        }
+        User oldUser = userMapper.selectById(userId);
+        if(oldUser == null){
+            throw new  BusinessException(ErrorCode.NULL_ERROR);
+        }
+        return userMapper.updateById(user);
+        //判断权限,仅管理员和自己可修改
+    }
+
+    @Override
+    public User getLoginUser(HttpServletRequest request) {
+        if(request == null){
+            return null;
+        }
+        Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
+        if(userObj == null){
+            throw new BusinessException(ErrorCode.NO_AUTH);
+        }
+        return (User) userObj;
+    }
+
+    @Override
+    public boolean isAdmin(HttpServletRequest request){
+        // 鉴权仅管理员可查询
+        Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
+        User user = (User) userObj;
+        return user != null && user.getUserRole() == ADMIN_ROLE;
+    }
+
+    @Override
+    public boolean isAdmin(User loginUser){
+        return loginUser != null && loginUser.getUserRole() == ADMIN_ROLE;
+    }
+
+    @Override
+    public List<User> matchUsers(long num, User loginUser) {
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.select("id","tags");
+        queryWrapper.isNotNull("tags");
+        List<User> userList = this.list();
+        String tags = loginUser.getTags();
+        Gson gson = new Gson();
+        List<String> tagList = gson.fromJson(tags, new TypeToken<List<String>>() {
+        }.getType());
+        List<Pair<User,Long>> list = new ArrayList<>();
+        //用户列表下标 =》 相似度
+        for (int i = 0; i < userList.size(); i++) {
+            User user = userList.get(i);
+            String userTags = user.getTags();
+            //无标签或为当前用户自己
+            if (StringUtils.isBlank(userTags) || user.getId() == loginUser.getId()) {
+                continue;
+            }
+            List<String> userTagList = gson.fromJson(userTags, new TypeToken<List<String>>() {
+            }.getType());
+            long dist = AlgorithmUtils.minDistance(tagList, userTagList);
+            list.add(new Pair<>(user,dist));
+        }
+        // 按编辑距离由小到大排序
+        List<Pair<User,Long>> topUserList = list.stream()
+                .sorted((a,b) -> (int) (a.getValue() -b.getValue()))
+                .limit(num)
+                .collect(Collectors.toList());
+        //原本顺序的userId列表
+        List<Long> userIdList = topUserList.stream().map(Pair -> Pair.getKey().getId()).collect(Collectors.toList());
+        QueryWrapper<User> wrapper = new QueryWrapper<>();
+        wrapper.in("id",userIdList);
+        //1 3 2
+        //user1 user2 user3
+        //1->user1 2->user2 3->user3
+        Map<Long,List<User>> userIdUserListMap = this.list(wrapper)
+                .stream()
+                .map(user -> getSafetyUser(user))
+                .collect(Collectors.groupingBy(User::getId));
+        List<User> finalUserList = new ArrayList<>();
+        for (Long userId : userIdList) {
+            finalUserList.add(userIdUserListMap.get(userId).get(0));
+        }
+        return finalUserList;
+
+    }
+
+
+    /**
+     * 根据标签搜索用户sql查询
+     * @param tagNameList
+     * @return
+     */
+    @Deprecated
+    private List<User> searchUsersByTagsBYSQL(List<String> tagNameList){
+        if(CollectionUtils.isEmpty(tagNameList)){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        //拼接and查询
+        for(String tagName : tagNameList){
+            queryWrapper = queryWrapper.like("tags",tagName);
+        }
+        List<User> userList = userMapper.selectList(queryWrapper);
+        return userList.stream().map(this::getSafetyUser).collect(Collectors.toList());
+    }
+
 }
 
 

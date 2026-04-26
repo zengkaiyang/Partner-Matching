@@ -6,12 +6,15 @@ import com.zzkkyy.usercenter.common.ResultUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-
+import io.swagger.v3.oas.annotations.Hidden;
 /**
  * 全局异常处理器
  * @author 曾凯阳
  * 无敌！
  */
+
+
+@Hidden
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandle {

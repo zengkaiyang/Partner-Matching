@@ -1,22 +1,20 @@
-package com.zzkkyy.usercenter.model.domain;
+package com.zzkkyy.usercenter.model.vo;
 
-import com.baomidou.mybatisplus.annotation.*;
+import lombok.Data;
 
 import java.io.Serializable;
 import java.util.Date;
-import lombok.Data;
+import java.util.List;
 
 /**
- * 用户
+ * 用户包装类（脱敏）
  * @TableName user
  */
-@TableName(value ="user")
 @Data
-public class User implements Serializable {
+public class UserVO implements Serializable {
     /**
      * 编号
      */
-    @TableId(type = IdType.AUTO)
     private long id;
 
     /**
@@ -45,11 +43,6 @@ public class User implements Serializable {
     private Integer gender;
 
     /**
-     * 密码
-     */
-    private String userPassword;
-
-    /**
      * 电话
      */
     private String phone;
@@ -75,12 +68,6 @@ public class User implements Serializable {
     private Date updateTime;
 
     /**
-     * 是否删除
-     */
-    @TableLogic
-    private Integer isDelete;
-
-    /**
      * 用户角色
      */
     private Integer userRole;
@@ -90,6 +77,10 @@ public class User implements Serializable {
      */
     private String planetCode;
 
-    @TableField(exist = false)
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = -8771554766282894852L;
+
+    /**
+     * 入队用户列表
+     */
+    List<UserVO> userList;
 }

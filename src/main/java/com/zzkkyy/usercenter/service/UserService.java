@@ -1,8 +1,15 @@
 package com.zzkkyy.usercenter.service;
 
+import com.zzkkyy.usercenter.common.BaseResponse;
 import com.zzkkyy.usercenter.model.domain.User;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.zzkkyy.usercenter.model.vo.UserVO;
 import jakarta.servlet.http.HttpServletRequest;
+
+import java.util.List;
+
+import static com.zzkkyy.usercenter.contant.UserConstant.ADMIN_ROLE;
+import static com.zzkkyy.usercenter.contant.UserConstant.USER_LOGIN_STATE;
 
 /**
 * @author 16642
@@ -39,4 +46,48 @@ public interface UserService extends IService<User> {
      * @return
      */
     int userLogout(HttpServletRequest request);
+
+    /**
+     * 根据标签搜索用户
+     *
+     * @param tagNameList
+     * @return
+     */
+    List<User> searchUsersByTags(List<String> tagNameList);
+
+    /**
+     * 跟新用户信息
+     * @param user
+     * @return
+     */
+    int updateUser(User user,User loginUser);
+
+    /**
+     * 货权当前登录用户信息
+     * @return
+     */
+    User getLoginUser(HttpServletRequest request);
+
+    /**
+     * 是否为管理员
+     * @param request
+     * @return
+     */
+    boolean isAdmin(HttpServletRequest request);
+
+
+    /**
+     * 是否为管理员
+     * @param loginUser
+     * @return
+     */
+    boolean isAdmin(User loginUser);
+
+    /**
+     * 匹配用户
+     * @param num
+     * @param loginUser
+     * @return
+     */
+    List<User> matchUsers(long num, User loginUser);
 }
