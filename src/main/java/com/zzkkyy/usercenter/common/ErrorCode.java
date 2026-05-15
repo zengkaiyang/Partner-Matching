@@ -15,7 +15,10 @@ public enum ErrorCode {
     NO_USER(40102,"无用户",""),
     SAVE_ERROR(40103,"保存错误",""),
     BYTE_ERROR(40104,"特殊字符错误",""),
-    SYSTEM_ERROR(50000,"系统内部异常","");
+    SYSTEM_ERROR(50000,"系统内部异常",""),
+    CLEAR_ERROR(50001,"数据清洗失败",""),
+    GET_TAGS_ERROR(50002,"获取热门标签失败",""),
+    GET_USER_ERROR(50003,"搜索用户失败","");;
 
     private final int code;
     /**

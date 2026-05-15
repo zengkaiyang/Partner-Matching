@@ -27,6 +27,9 @@ server:
     session:
       cookie:
         domain: localhost
+  # 禁用 JSP 支持，避免与 Spring Boot 3.x 冲突
+  jsp:
+    register-servlet: false
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false
@@ -64,3 +67,18 @@ knife4j:
     username: user
     # Basic认证密码
     password: 123456
+
+# 爬虫配置
+crawler:
+  enabled: true
+  target-urls: http://quotes.toscrape.com/
+  thread-count: 5          # 增加并发线程数（从2改为5）
+  retry-times: 2           # 减少重试次数（从3改为2）
+  sleep-time: 500          # 减少请求间隔（从1000ms改为500ms）
+
+# Hive 配置
+hive:
+  jdbc:
+    url: jdbc:hive2://192.168.26.202:10000/default
+    username: 
+    password: 

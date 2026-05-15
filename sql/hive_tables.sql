@@ -1,0 +1,117 @@
+-- ============================================
+-- Hive 数据表创建脚本
+-- 用于存储爬取和清洗后的用户标签数据
+-- ============================================
+
+-- 1. 用户基础信息表
+CREATE TABLE IF NOT EXISTS user_info (
+    id BIGINT COMMENT '用户ID',
+    username STRING COMMENT '用户名',
+    user_account STRING COMMENT '用户账号',
+    avatar_url STRING COMMENT '头像URL',
+    gender TINYINT COMMENT '性别 0-男 1-女',
+    phone STRING COMMENT '电话',
+    email STRING COMMENT '邮箱',
+    user_status TINYINT COMMENT '用户状态 0-正常',
+    user_role TINYINT COMMENT '用户角色 0-普通用户 1-管理员',
+    planet_code STRING COMMENT '星球编号',
+    tags STRING COMMENT '标签JSON数组',
+    bio STRING COMMENT '个人简介',
+    create_time TIMESTAMP COMMENT '创建时间',
+    update_time TIMESTAMP COMMENT '更新时间',
+    is_delete TINYINT COMMENT '是否删除 0-未删除'
+)
+COMMENT '用户基础信息表'
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t'
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
+
+-- 2. 用户标签明细表（将标签展开，便于分析）
+CREATE TABLE IF NOT EXISTS user_tags_detail (
+    id BIGINT COMMENT '记录ID',
+    user_id BIGINT COMMENT '用户ID',
+    username STRING COMMENT '用户名',
+    tag STRING COMMENT '标签名称',
+    platform STRING COMMENT '来源平台',
+    crawl_time TIMESTAMP COMMENT '爬取时间'
+)
+COMMENT '用户标签明细表（每个标签一条记录）'
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t'
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
+
+-- 3. 标签统计表（聚合统计）
+CREATE TABLE IF NOT EXISTS tag_statistics (
+    tag STRING COMMENT '标签名称',
+    tag_count BIGINT COMMENT '使用次数',
+    user_count BIGINT COMMENT '用户数量',
+    category STRING COMMENT '技术分类',
+    stat_date DATE COMMENT '统计日期'
+)
+COMMENT '标签统计表'
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t'
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
+
+-- 4. 技术栈分类统计表
+CREATE TABLE IF NOT EXISTS tech_category_stats (
+    category STRING COMMENT '技术分类（后端/前端/数据库等）',
+    tech_count BIGINT COMMENT '技术数量',
+    user_count BIGINT COMMENT '用户数量',
+    percentage DOUBLE COMMENT '占比百分比',
+    stat_date DATE COMMENT '统计日期'
+)
+COMMENT '技术栈分类统计表'
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t'
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
+
+-- 5. 爬取任务记录表
+CREATE TABLE IF NOT EXISTS crawl_job_log (
+    job_id STRING COMMENT '任务ID',
+    start_time TIMESTAMP COMMENT '开始时间',
+    end_time TIMESTAMP COMMENT '结束时间',
+    status STRING COMMENT '状态 success/failed',
+    crawled_count INT COMMENT '爬取数量',
+    cleaned_count INT COMMENT '清洗数量',
+    error_message STRING COMMENT '错误信息'
+)
+COMMENT '爬取任务日志表'
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t'
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
+
+-- ============================================
+-- 创建视图：热门标签 Top 20
+-- ============================================
+CREATE VIEW IF NOT EXISTS view_top_20_tags AS
+SELECT 
+    tag,
+    tag_count,
+    user_count,
+    ROUND(user_count * 100.0 / SUM(user_count) OVER(), 2) as percentage
+FROM tag_statistics
+ORDER BY user_count DESC
+LIMIT 20;
+
+-- ============================================
+-- 创建视图：技术栈分布
+-- ============================================
+CREATE VIEW IF NOT EXISTS view_tech_distribution AS
+SELECT 
+    category,
+    SUM(user_count) as total_users,
+    ROUND(SUM(user_count) * 100.0 / SUM(SUM(user_count)) OVER(), 2) as percentage
+FROM tech_category_stats
+GROUP BY category
+ORDER BY total_users DESC;
+
+-- ============================================
+-- 示例：插入测试数据（可选）
+-- ============================================
+-- INSERT INTO user_info VALUES (1, 'test_user', 'test', '...', 0, '', '', 0, 0, '', '["java","spring"]', 'Test bio', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0);

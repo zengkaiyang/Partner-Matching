@@ -28,7 +28,7 @@ public interface UserService extends IService<User> {
      *
      * @return 新用户id
      */
-    Long userRegister(String userAccount, String userPassword,String checkPassword,String plantCode);
+    Long userRegister(String userAccount, String userPassword,String checkPassword,String plantCode,String tags);
 
     /**
      * 用户登录
@@ -90,4 +90,21 @@ public interface UserService extends IService<User> {
      * @return
      */
     List<User> matchUsers(long num, User loginUser);
+
+    /**
+     * 获取随机标签列表
+     * @param num 标签数量
+     * @return 随机标签列表
+     */
+    List<String> getRandomTags(int num);
+
+    /**
+     * 根据标签相似度搜索用户（使用编辑距离算法）
+     * @param tags 搜索标签
+     * @param loginUser 登录用户
+     * @return 匹配的用户列表
+     */
+    List<User> searchUsersByTagsMatch(List<String> tags, User loginUser);
+
+
 }

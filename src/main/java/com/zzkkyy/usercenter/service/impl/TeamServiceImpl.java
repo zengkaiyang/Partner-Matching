@@ -174,7 +174,7 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
             if (statusEnum == null){
                 statusEnum = TeamStatusEnum.PUBLIC;
             }
-            if (!isAdmin && !statusEnum.equals(TeamStatusEnum.PRIVATE)){
+            if (!isAdmin && statusEnum.equals(TeamStatusEnum.PRIVATE)){
                 throw new BusinessException(ErrorCode.NO_AUTH);
             }
             queryWrapper.eq("status",statusEnum.getValue());
@@ -219,7 +219,7 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         Long id = teamUpdateRequest.getId();
-        if (id == null && id <= 0) {
+        if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         Team oldTeam = this.getById(id);

@@ -12,6 +12,7 @@ import com.zzkkyy.usercenter.model.domain.User;
 import com.zzkkyy.usercenter.model.vo.UserVO;
 import com.zzkkyy.usercenter.service.UserService;
 import com.zzkkyy.usercenter.utils.AlgorithmUtils;
+import com.zzkkyy.usercenter.utils.AvatarUtils;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -47,7 +48,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private static final String SALT = "yupi";
 
     @Override
-    public Long userRegister(String userAccount, String userPassword, String checkPassword,String plantCode) {
+    public Long userRegister(String userAccount, String userPassword, String checkPassword,String plantCode,String tags) {
         //1.利用isAnyBlank校验是否为空
         if(StringUtils.isAnyBlank(userAccount,userPassword,checkPassword,plantCode)){
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"参数为空");
@@ -92,12 +93,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setUserAccount(userAccount);
         user.setUserPassword(encryptPassword);
         user.setPlanetCode(plantCode);
+        user.setTags(tags);
+        // 为新用户分配随机头像
+        user.setAvatarUrl(AvatarUtils.getRandomAvatar());
         boolean saveResult = this.save(user);
         if(!saveResult){
             throw new BusinessException(ErrorCode.SAVE_ERROR);
         }
         return user.getId();
     }
+
 
     @Override
     public User userLogin(String userAccount, String userPassword, HttpServletRequest request) {
@@ -160,8 +165,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         safetyUser.setUserStatus(user.getUserStatus());
         safetyUser.setCreateTime(user.getCreateTime());
         safetyUser.setTags(user.getTags());
+
+        // 如果用户没有头像，自动分配一个随机头像
+        if (StringUtils.isBlank(safetyUser.getAvatarUrl())) {
+            safetyUser.setAvatarUrl(AvatarUtils.getAvatarByUserId(user.getId()));
+        }
+
         return safetyUser;
     }
+
 
     /**
      * 用户注销
@@ -219,6 +231,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if(oldUser == null){
             throw new  BusinessException(ErrorCode.NULL_ERROR);
         }
+        log.info("接收到的用户对象: {}", user);
         return userMapper.updateById(user);
         //判断权限,仅管理员和自己可修改
     }
@@ -294,6 +307,116 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         }
         return finalUserList;
 
+    }
+
+    @Override
+    public List<String> getRandomTags(int num) {
+        // 查询所有用户的标签
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.select("tags");
+        queryWrapper.isNotNull("tags");
+        List<User> userList = this.list(queryWrapper);
+
+        // 收集所有标签
+        Set<String> allTagsSet = new HashSet<>();
+        Gson gson = new Gson();
+
+        for (User user : userList) {
+            String tagsStr = user.getTags();
+            if (StringUtils.isNotBlank(tagsStr)) {
+                try {
+                    List<String> userTags = gson.fromJson(tagsStr, new TypeToken<List<String>>() {}.getType());
+                    if (userTags != null) {
+                        allTagsSet.addAll(userTags);
+                    }
+                } catch (Exception e) {
+                    log.error("解析标签失败: {}", tagsStr, e);
+                }
+            }
+        }
+
+        // 转换为列表并随机选择
+        List<String> allTagsList = new ArrayList<>(allTagsSet);
+        Collections.shuffle(allTagsList);
+
+        // 返回指定数量的标签
+        int resultSize = Math.min(num, allTagsList.size());
+        return allTagsList.subList(0, resultSize);
+    }
+
+    @Override
+    public List<User> searchUsersByTagsMatch(List<String> searchTags, User loginUser) {
+        if (CollectionUtils.isEmpty(searchTags)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+
+        // 优化1: 只查询必要的字段，减少数据传输
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.select("id", "username", "avatarUrl", "tags", "gender", "planetCode");
+        queryWrapper.isNotNull("tags");
+        // 排除当前用户
+        if (loginUser != null) {
+            queryWrapper.ne("id", loginUser.getId());
+        }
+
+        List<User> userList = this.list(queryWrapper);
+
+        Gson gson = new Gson();
+
+        // 优化2: 使用并行流加速计算（适合多核CPU）
+        List<Pair<User, Long>> userDistanceList = userList.parallelStream()
+                .map(user -> {
+                    String tagsStr = user.getTags();
+                    if (StringUtils.isBlank(tagsStr)) {
+                        return null;
+                    }
+
+                    try {
+                        List<String> userTags = gson.fromJson(tagsStr, new TypeToken<List<String>>() {}.getType());
+                        if (userTags == null || userTags.isEmpty()) {
+                            return null;
+                        }
+
+                        // 计算编辑距离
+                        long distance = AlgorithmUtils.minDistance(searchTags, userTags);
+                        return new Pair<>(user, distance);
+                    } catch (Exception e) {
+                        log.error("解析用户标签失败: {}", tagsStr, e);
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        // 优化3: 按编辑距离从小到大排序，并限制返回数量
+        List<Pair<User, Long>> sortedList = userDistanceList.stream()
+                .sorted(Comparator.comparingLong(Pair::getValue))
+                .limit(50)  // 先取前50个最匹配的
+                .collect(Collectors.toList());
+
+        // 优化4: 批量查询完整用户信息并进行脱敏处理
+        List<Long> userIds = sortedList.stream()
+                .map(Pair::getKey)
+                .map(User::getId)
+                .collect(Collectors.toList());
+
+        if (userIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 通过ID批量查询，确保数据完整性
+        Map<Long, User> userMap = this.listByIds(userIds).stream()
+                .map(this::getSafetyUser)
+                .collect(Collectors.toMap(User::getId, u -> u));
+
+        // 保持排序顺序返回结果
+        return sortedList.stream()
+                .map(Pair::getKey)
+                .map(User::getId)
+                .map(userMap::get)
+                .filter(Objects::nonNull)
+                .limit(30)  // 最终只返回前10个
+                .collect(Collectors.toList());
     }
 
 

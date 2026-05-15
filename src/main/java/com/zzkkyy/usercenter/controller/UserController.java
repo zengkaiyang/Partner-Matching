@@ -52,10 +52,11 @@ public class UserController {
         String userPassword = userRegisterRequest.getUserPassword();
         String checkPassword = userRegisterRequest.getCheckPassword();
         String planetCode = userRegisterRequest.getPlanetCode();
+        String tags = userRegisterRequest.getTags();
         if(StringUtils.isAnyBlank(userAccount,userPassword,checkPassword,planetCode)){
             return ResultUtils.error(ErrorCode.PARAMS_ERROR);
         }
-        long result = userService.userRegister(userAccount,userPassword,checkPassword,planetCode);
+        long result = userService.userRegister(userAccount,userPassword,checkPassword,planetCode,tags);
         return ResultUtils.success(result);
     }
 
@@ -184,7 +185,35 @@ public class UserController {
     }
 
 
+    /**
+     * 获取随机标签列表
+     * @param num 标签数量
+     * @return 随机标签列表
+     */
+    @GetMapping("/tags/random")
+    public BaseResponse<List<String>> getRandomTags(@RequestParam(defaultValue = "10") int num){
+        if(num <= 0 || num > 50){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        List<String> tags = userService.getRandomTags(num);
+        return ResultUtils.success(tags);
+    }
 
+    /**
+     * 根据标签相似度搜索用户
+     * @param tags 搜索标签
+     * @param request HTTP请求
+     * @return 匹配的用户列表
+     */
+    @PostMapping("/search/tags/match")
+    public BaseResponse<List<User>> searchUsersByTagsMatch(@RequestBody List<String> tags, HttpServletRequest request){
+        if(CollectionUtils.isEmpty(tags)){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        User loginUser = userService.getLoginUser(request);
+        List<User> userList = userService.searchUsersByTagsMatch(tags, loginUser);
+        return ResultUtils.success(userList);
+    }
 
 
 

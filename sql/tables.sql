@@ -32,7 +32,7 @@ create table team
     Password varchar(512)                           null comment '密码',
     createTime   datetime default CURRENT_TIMESTAMP null comment '创建时间',
     updateTime   datetime default CURRENT_TIMESTAMP null on update CURRENT_TIMESTAMP comment '跟新时间',
-    isDelete     tinyint  default 0                 not null comment '是否删除',
+    isDelete     tinyint  default 0                 not null comment '是否删除'
 )
     comment '队伍';
 

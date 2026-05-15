@@ -217,17 +217,31 @@ public class TeamController {
         if (teamQuery == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
+
         User loginUser = userService.getLoginUser(request);
+
+        // 如果传入了userId参数，则查询指定用户的队伍（用于"联系我"功能）
+        Long targetUserId = teamQuery.getUserId();
+        Long queryUserId = (targetUserId != null && targetUserId > 0) ? targetUserId : loginUser.getId();
+
         QueryWrapper<UserTeam> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("userId",loginUser.getId());
+        queryWrapper.eq("userId", queryUserId);
         List<UserTeam> userTeamList = userteamService.list(queryWrapper);
+
         //取出不重复的队伍id
         Map<Long,List<UserTeam>> listMap = userTeamList.stream()
                 .collect(Collectors.groupingBy(UserTeam::getTeamId));
         List<Long> idList = new ArrayList<>(listMap.keySet());
+
+        if (idList.isEmpty()) {
+            return ResultUtils.success(new ArrayList<>());
+        }
+
         teamQuery.setIdList(idList);
-        List<TeamUserVO> teamList = teamService.listTeams(teamQuery,true);
+        List<TeamUserVO> teamList = teamService.listTeams(teamQuery, true);
         return ResultUtils.success(teamList);
     }
+
+
 
 }

@@ -44,4 +44,22 @@ public class AlgorithmUtils {
         }
         return d[n][m];
     }
+
+    /**
+     * 计算两个标签列表的相似度分数（基于编辑距离）
+     * @param tagList1 标签列表1
+     * @param tagList2 标签列表2
+     * @return 相似度分数，值越小越相似
+     */
+    public static double calculateSimilarityScore(List<String> tagList1, List<String> tagList2) {
+        int distance = minDistance(tagList1, tagList2);
+        int maxLen = Math.max(tagList1.size(), tagList2.size());
+
+        if (maxLen == 0) {
+            return 0;
+        }
+
+        // 归一化到0-1范围，1表示完全相同，0表示完全不同
+        return 1.0 - ((double) distance / maxLen);
+    }
 }

@@ -90,6 +90,11 @@ public class User implements Serializable {
      */
     private String planetCode;
 
+    /**
+     * 个人简介
+     */
+    private String bio;
+
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 }
