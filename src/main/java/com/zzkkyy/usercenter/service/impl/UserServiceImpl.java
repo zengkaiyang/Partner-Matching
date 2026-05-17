@@ -439,6 +439,110 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         return userList.stream().map(this::getSafetyUser).collect(Collectors.toList());
     }
 
+    @Override
+    public com.baomidou.mybatisplus.extension.plugins.pagination.Page<User> getUserList(int pageNum, int pageSize, String keyword, Integer userRole) {
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<User> page = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(pageNum, pageSize);
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        
+        // 关键词搜索
+        if (StringUtils.isNotBlank(keyword)) {
+            queryWrapper.and(wrapper -> wrapper
+                    .like("username", keyword)
+                    .or()
+                    .like("userAccount", keyword)
+                    .or()
+                    .like("email", keyword)
+            );
+        }
+        
+        // 角色筛选
+        if (userRole != null) {
+            queryWrapper.eq("userRole", userRole);
+        }
+        
+        queryWrapper.orderByDesc("createTime");
+        return userMapper.selectPage(page, queryWrapper);
+    }
+
+    @Override
+    public boolean updateUser(User user) {
+        User existingUser = userMapper.selectById(user.getId());
+        if (existingUser == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户不存在");
+        }
+        
+        // 只允许更新部分字段
+        existingUser.setUsername(user.getUsername());
+        existingUser.setAvatarUrl(user.getAvatarUrl());
+        existingUser.setPhone(user.getPhone());
+        existingUser.setEmail(user.getEmail());
+        existingUser.setGender(user.getGender());
+        existingUser.setUserRole(user.getUserRole());
+        existingUser.setUserStatus(user.getUserStatus());
+        existingUser.setUpdateTime(new Date());
+        
+        return userMapper.updateById(existingUser) > 0;
+    }
+
+    @Override
+    public boolean updateUserStatus(long userId, int status) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户不存在");
+        }
+        
+        user.setUserStatus(status);
+        user.setUpdateTime(new Date());
+        return userMapper.updateById(user) > 0;
+    }
+
+    @Override
+    public boolean deleteUser(long userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户不存在");
+        }
+        
+        // 逻辑删除
+        user.setIsDelete(1);
+        user.setUpdateTime(new Date());
+        return userMapper.updateById(user) > 0;
+    }
+
+    @Override
+    public Map<String, String> getAllSettings() {
+        // TODO: 从system_config表读取配置
+        Map<String, String> settings = new HashMap<>();
+        settings.put("siteName", "Partner Matching");
+        settings.put("allowRegister", "true");
+        settings.put("pageSize", "10");
+        return settings;
+    }
+
+    @Override
+    public boolean updateSettings(List<com.zzkkyy.usercenter.model.domain.SystemConfig> configs) {
+        // TODO: 实现系统设置更新逻辑
+        log.info("更新系统设置，配置数量: {}", configs.size());
+        return true;
+    }
+
+    @Override
+    public Map<String, Object> getSystemStats() {
+        Map<String, Object> stats = new HashMap<>();
+        
+        // 总用户数
+        long totalUsers = userMapper.selectCount(null);
+        stats.put("totalUsers", totalUsers);
+        
+        // 今日新增用户（简化处理）
+        stats.put("todayNewUsers", 0);
+        
+        // 活跃用户数
+        stats.put("activeUsers", 0);
+        
+        return stats;
+    }
+
 }
 
 

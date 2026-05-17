@@ -106,5 +106,55 @@ public interface UserService extends IService<User> {
      */
     List<User> searchUsersByTagsMatch(List<String> tags, User loginUser);
 
+    /**
+     * 获取用户列表（分页）
+     * @param pageNum 页码
+     * @param pageSize 每页数量
+     * @param keyword 搜索关键词
+     * @param userRole 用户角色筛选
+     * @return 用户分页列表
+     */
+    com.baomidou.mybatisplus.extension.plugins.pagination.Page<User> getUserList(int pageNum, int pageSize, String keyword, Integer userRole);
+
+    /**
+     * 更新用户信息
+     * @param user 用户信息
+     * @return 是否成功
+     */
+    boolean updateUser(User user);
+
+    /**
+     * 更新用户状态
+     * @param userId 用户ID
+     * @param status 状态（0-正常，1-禁用）
+     * @return 是否成功
+     */
+    boolean updateUserStatus(long userId, int status);
+
+    /**
+     * 删除用户
+     * @param userId 用户ID
+     * @return 是否成功
+     */
+    boolean deleteUser(long userId);
+
+    /**
+     * 获取所有系统设置
+     * @return 系统设置Map
+     */
+    java.util.Map<String, String> getAllSettings();
+
+    /**
+     * 更新系统设置
+     * @param configs 配置列表
+     * @return 是否成功
+     */
+    boolean updateSettings(java.util.List<com.zzkkyy.usercenter.model.domain.SystemConfig> configs);
+
+    /**
+     * 获取系统统计信息
+     * @return 统计信息
+     */
+    java.util.Map<String, Object> getSystemStats();
 
 }

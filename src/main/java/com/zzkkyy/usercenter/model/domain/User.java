@@ -95,6 +95,52 @@ public class User implements Serializable {
      */
     private String bio;
 
+    /**
+     * 城市
+     */
+    private String city;
+
+    /**
+     * 生日
+     */
+    private Date birthday;
+
+    /**
+     * 积分（用于排行榜）
+     */
+    @TableField(exist = false)
+    private Integer points;
+
+    /**
+     * 等级（V1-V10）
+     */
+    @TableField(exist = false)
+    private Integer level;
+
+    /**
+     * 获赞数
+     */
+    @TableField(exist = false)
+    private Integer likes;
+
+    /**
+     * 关注数
+     */
+    @TableField(exist = false)
+    private Integer following;
+
+    /**
+     * 粉丝数
+     */
+    @TableField(exist = false)
+    private Integer followers;
+
+    /**
+     * 注册时间（格式化）
+     */
+    @TableField(exist = false)
+    private String registerTime;
+
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 }
