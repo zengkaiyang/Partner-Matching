@@ -134,7 +134,7 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
     }
 
     @Override
-    public List<TeamUserVO> listTeams(TeamQuery teamQuery,boolean isAdmin) {
+    public List<TeamUserVO> listTeams(TeamQuery teamQuery, boolean isAdmin, User loginUser) {
         QueryWrapper<Team> queryWrapper = new QueryWrapper<>();
         //1。组合查询条件
         if (teamQuery != null) {
@@ -169,15 +169,17 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
                 queryWrapper.eq("userId",userId);
             }
             Integer status = teamQuery.getStatus();
-            // 根据状态查询
-            TeamStatusEnum statusEnum = TeamStatusEnum.getEnumByValue(status);
-            if (statusEnum == null){
-                statusEnum = TeamStatusEnum.PUBLIC;
+            // 根据状态查询（只有明确指定了status才过滤）
+            if (status != null) {
+                TeamStatusEnum statusEnum = TeamStatusEnum.getEnumByValue(status);
+                if (statusEnum == null){
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "队伍状态参数错误");
+                }
+                if (!isAdmin && statusEnum.equals(TeamStatusEnum.PRIVATE)){
+                    throw new BusinessException(ErrorCode.NO_AUTH);
+                }
+                queryWrapper.eq("status",statusEnum.getValue());
             }
-            if (!isAdmin && statusEnum.equals(TeamStatusEnum.PRIVATE)){
-                throw new BusinessException(ErrorCode.NO_AUTH);
-            }
-            queryWrapper.eq("status",statusEnum.getValue());
         }
         //不展示已过期的队伍
         queryWrapper.and(qw -> qw.gt("expireTime",new Date()).or().isNull("expireTime"));
@@ -208,6 +210,20 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
             } catch (IllegalAccessException | InvocationTargetException e) {
                 throw new RuntimeException(e);
             }
+            
+            // 设置已加入人数
+            long hasJoinNum = countTeamUserByTeamId(team.getId());
+            teamUserVO.setHasJoinNum((int) hasJoinNum);
+            
+            // 判断当前用户是否已加入该队伍（如果有登录用户）
+            if (loginUser != null) {
+                QueryWrapper<UserTeam> userTeamQueryWrapper = new QueryWrapper<>();
+                userTeamQueryWrapper.eq("userId", loginUser.getId());
+                userTeamQueryWrapper.eq("teamId", team.getId());
+                long count = userTeamService.count(userTeamQueryWrapper);
+                teamUserVO.setHasJoin(count > 0);
+            }
+            
             teamUserVOList.add(teamUserVO);
         }
         return teamUserVOList;
@@ -407,6 +423,33 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
         QueryWrapper<UserTeam> userTeamQueryWrapper = new QueryWrapper<>();
         userTeamQueryWrapper.eq("teamId",teamId);
         return userTeamService.count(userTeamQueryWrapper);
+    }
+
+    /**
+     * 获取用户加入的队伍列表
+     */
+    @Override
+    public List<TeamUserVO> listJoinTeams(Long userId, TeamQuery teamQuery, boolean isAdmin, User loginUser) {
+        // 1. 先查询用户加入的所有队伍ID
+        QueryWrapper<UserTeam> userTeamQueryWrapper = new QueryWrapper<>();
+        userTeamQueryWrapper.eq("userId", userId);
+        List<UserTeam> userTeams = userTeamService.list(userTeamQueryWrapper);
+        
+        if (CollectionUtils.isEmpty(userTeams)) {
+            return new ArrayList<>();
+        }
+        
+        // 2. 提取队伍ID列表
+        List<Long> teamIds = userTeams.stream()
+                .map(UserTeam::getTeamId)
+                .collect(java.util.stream.Collectors.toList());
+        
+        // 3. 根据队伍ID列表和查询条件查询队伍
+        TeamQuery query = teamQuery != null ? teamQuery : new TeamQuery();
+        query.setIdList(teamIds);
+        
+        // 4. 调用listTeams方法
+        return listTeams(query, isAdmin, loginUser);
     }
 
 }

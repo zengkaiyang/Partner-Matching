@@ -145,6 +145,16 @@ public class User implements Serializable {
     @TableField(exist = false)
     private String registerTime;
 
+    /**
+     * 微信OpenID
+     */
+    private String wechatOpenId;
+
+    /**
+     * QQ OpenID
+     */
+    private String qqOpenId;
+
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 }

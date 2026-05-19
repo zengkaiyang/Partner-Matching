@@ -28,6 +28,11 @@ public class TeamUserVO {
     private String description;
 
     /**
+     * 标签（JSON数组，用于分类）
+     */
+    private String tags;
+
+    /**
      * 最大人数
      */
     private Integer maxNum;

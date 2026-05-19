@@ -28,9 +28,21 @@ public interface TeamService extends IService<Team> {
     /**
      * 搜索队伍
      * @param teamQuery
+     * @param isAdmin
+     * @param loginUser 当前登录用户（用于判断是否已加入）
      * @return
      */
-    List<TeamUserVO> listTeams(TeamQuery teamQuery,boolean isAdmin);
+    List<TeamUserVO> listTeams(TeamQuery teamQuery, boolean isAdmin, User loginUser);
+
+    /**
+     * 获取用户加入的队伍列表
+     * @param userId 用户ID
+     * @param teamQuery 查询条件
+     * @param isAdmin 是否管理员
+     * @param loginUser 当前登录用户
+     * @return
+     */
+    List<TeamUserVO> listJoinTeams(Long userId, TeamQuery teamQuery, boolean isAdmin, User loginUser);
 
     /**
      * 跟新队伍

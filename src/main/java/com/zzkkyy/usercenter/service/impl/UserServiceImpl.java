@@ -8,12 +8,16 @@ import com.google.gson.reflect.TypeToken;
 import com.zzkkyy.usercenter.common.ErrorCode;
 import com.zzkkyy.usercenter.exception.BusinessException;
 import com.zzkkyy.usercenter.mapper.UserMapper;
+import com.zzkkyy.usercenter.mapper.ThirdPartyAccountMapper;
 import com.zzkkyy.usercenter.model.domain.User;
 import com.zzkkyy.usercenter.model.request.UserRegisterRequest;
 import com.zzkkyy.usercenter.model.vo.UserVO;
 import com.zzkkyy.usercenter.service.UserService;
+import com.zzkkyy.usercenter.config.SocialLoginConfig;
+import com.zzkkyy.usercenter.model.domain.ThirdPartyAccount;
 import com.zzkkyy.usercenter.utils.AlgorithmUtils;
 import com.zzkkyy.usercenter.utils.AvatarUtils;
+import com.zzkkyy.usercenter.utils.OAuth2Utils;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +51,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Resource
     private UserMapper userMapper;
+    
+    @Resource
+    private ThirdPartyAccountMapper thirdPartyAccountMapper;
+    
+    @Resource
+    private SocialLoginConfig socialLoginConfig;
+    
     /**
      * 盐值，混淆密码
      */
@@ -207,6 +218,148 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         User safetyUser = getSafetyUser(user);
         request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
         return safetyUser;
+    }
+
+    /**
+     * 微信登录
+     */
+    @Override
+    public User wechatLogin(String code, HttpServletRequest request) {
+        // 调用微信OAuth2.0接口获取用户信息
+        String appId = socialLoginConfig.getWechat().getAppId();
+        String appSecret = socialLoginConfig.getWechat().getAppSecret();
+        
+        if (appId == null || appSecret == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "微信登录未配置，请联系管理员");
+        }
+        
+        // 获取access_token和openid
+        Map<String, Object> tokenInfo = OAuth2Utils.getWechatAccessTokenAndOpenId(appId, appSecret, code);
+        if (tokenInfo == null || !tokenInfo.containsKey("openid")) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "微信登录失败，无法获取用户信息");
+        }
+        
+        String openId = (String) tokenInfo.get("openid");
+        String accessToken = (String) tokenInfo.get("access_token");
+        
+        // 获取用户详细信息
+        Map<String, Object> userInfo = OAuth2Utils.getWechatUserInfo(accessToken, openId);
+        if (userInfo == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "微信登录失败，无法获取用户详细信息");
+        }
+        
+        String nickname = (String) userInfo.getOrDefault("nickname", "微信用户");
+        String avatarUrl = (String) userInfo.getOrDefault("headimgurl", AvatarUtils.getRandomAvatar());
+        
+        // 检查是否已有该微信用户
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("wechatOpenId", openId);
+        User existingUser = userMapper.selectOne(queryWrapper);
+        
+        if (existingUser != null) {
+            // 用户已存在，直接登录
+            User safetyUser = getSafetyUser(existingUser);
+            request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
+            return safetyUser;
+        } else {
+            // 创建新用户
+            User newUser = new User();
+            newUser.setUserAccount("wechat_" + System.currentTimeMillis());
+            newUser.setUsername(nickname);
+            newUser.setAvatarUrl(avatarUrl);
+            newUser.setWechatOpenId(openId);
+            newUser.setUserPassword(DigestUtils.md5DigestAsHex((SALT + "default_password").getBytes())); // 设置默认密码
+            newUser.setLevel(1);
+            
+            // 根据IP获取城市
+            if (request != null) {
+                String ip = getRealIp(request);
+                String city = getCityByIp(ip);
+                newUser.setCity(city);
+            }
+            
+            boolean saveResult = this.save(newUser);
+            if (!saveResult) {
+                throw new BusinessException(ErrorCode.SAVE_ERROR);
+            }
+            
+            User safetyUser = getSafetyUser(newUser);
+            request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
+            return safetyUser;
+        }
+    }
+
+    /**
+     * QQ登录
+     */
+    @Override
+    public User qqLogin(String code, HttpServletRequest request) {
+        // 调用QQ OAuth2.0接口获取用户信息
+        String appId = socialLoginConfig.getQq().getAppId();
+        String appKey = socialLoginConfig.getQq().getAppKey();
+        String redirectUri = socialLoginConfig.getQq().getRedirectUri();
+        
+        if (appId == null || appKey == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "QQ登录未配置，请联系管理员");
+        }
+        
+        // 获取access_token
+        String accessToken = OAuth2Utils.getQQAccessToken(appId, appKey, code, redirectUri);
+        if (accessToken == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "QQ登录失败，无法获取访问令牌");
+        }
+        
+        // 获取openid
+        String openId = OAuth2Utils.getQQOpenId(accessToken);
+        if (openId == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "QQ登录失败，无法获取用户ID");
+        }
+        
+        // 获取用户信息
+        Map<String, Object> userInfo = OAuth2Utils.getQQUserInfo(appId, accessToken, openId);
+        if (userInfo == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "QQ登录失败，无法获取用户信息");
+        }
+        
+        String nickname = (String) userInfo.getOrDefault("nickname", "QQ用户");
+        String avatarUrl = (String) userInfo.getOrDefault("figureurl_qq_2", AvatarUtils.getRandomAvatar());
+        
+        // 检查是否已有该QQ用户
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("qqOpenId", openId);
+        User existingUser = userMapper.selectOne(queryWrapper);
+        
+        if (existingUser != null) {
+            // 用户已存在，直接登录
+            User safetyUser = getSafetyUser(existingUser);
+            request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
+            return safetyUser;
+        } else {
+            // 创建新用户
+            User newUser = new User();
+            newUser.setUserAccount("qq_" + System.currentTimeMillis());
+            newUser.setUsername(nickname);
+            newUser.setAvatarUrl(avatarUrl);
+            newUser.setQqOpenId(openId);
+            newUser.setUserPassword(DigestUtils.md5DigestAsHex((SALT + "default_password").getBytes())); // 设置默认密码
+            newUser.setLevel(1);
+            
+            // 根据IP获取城市
+            if (request != null) {
+                String ip = getRealIp(request);
+                String city = getCityByIp(ip);
+                newUser.setCity(city);
+            }
+            
+            boolean saveResult = this.save(newUser);
+            if (!saveResult) {
+                throw new BusinessException(ErrorCode.SAVE_ERROR);
+            }
+            
+            User safetyUser = getSafetyUser(newUser);
+            request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
+            return safetyUser;
+        }
     }
 
     /**
@@ -829,6 +982,147 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             log.error("调用高德API获取IP城市失败: {}", ip, e);
             return "未知";
         }
+    }
+
+    /**
+     * 第三方平台模拟登录（微信/QQ）
+     * 逻辑：
+     * 1. 查询 third_party_account 表，验证账号密码
+     * 2. 获取绑定的 user_id
+     * 3. 登录该用户
+     */
+    @Override
+    public User thirdPartyLogin(com.zzkkyy.usercenter.model.request.ThirdPartyLoginRequest loginRequest, HttpServletRequest request) {
+        String platform = loginRequest.getPlatform();
+        String account = loginRequest.getAccount();
+        String password = loginRequest.getPassword();
+        
+        // 验证平台类型
+        if (!"wechat".equals(platform) && !"qq".equals(platform)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "不支持的平台类型");
+        }
+        
+        // 查询第三方账号
+        QueryWrapper<ThirdPartyAccount> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("platform", platform);
+        queryWrapper.eq("account", account);
+        ThirdPartyAccount thirdPartyAccount = thirdPartyAccountMapper.selectOne(queryWrapper);
+        
+        if (thirdPartyAccount == null) {
+            throw new BusinessException(ErrorCode.NO_USER, "该账号未绑定，请先注册或绑定账号");
+        }
+        
+        // 验证密码（第三方账号表使用纯MD5加密，不加盐）
+        String encryptedPassword = DigestUtils.md5DigestAsHex(password.getBytes());
+        if (!encryptedPassword.equals(thirdPartyAccount.getPassword())) {
+            log.error("密码验证失败 - 账号: {}, 平台: {}", account, platform);
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码错误");
+        }
+        
+        // 获取绑定的用户ID
+        Long userId = thirdPartyAccount.getUserId();
+        User user = userMapper.selectById(userId);
+        
+        if (user == null) {
+            throw new BusinessException(ErrorCode.NO_USER, "绑定的用户不存在");
+        }
+        
+        // 登录成功，设置session
+        User safetyUser = getSafetyUser(user);
+        request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
+        
+        log.info("用户通过{}平台登录成功，第三方账号: {}, 绑定用户ID: {}", platform, account, userId);
+        return safetyUser;
+    }
+
+    /**
+     * 绑定第三方账号
+     */
+    @Override
+    public boolean bindThirdPartyAccount(Long userId, String platform, String account, String password) {
+        // 验证参数
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户ID无效");
+        }
+        if (!"wechat".equals(platform) && !"qq".equals(platform)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "不支持的平台类型");
+        }
+        if (account == null || account.trim().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号不能为空");
+        }
+        if (password == null || password.trim().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码不能为空");
+        }
+        
+        // 检查用户是否存在
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.NO_USER, "用户不存在");
+        }
+        
+        // 检查该平台的账号是否已被其他用户绑定
+        QueryWrapper<ThirdPartyAccount> checkWrapper = new QueryWrapper<>();
+        checkWrapper.eq("platform", platform);
+        checkWrapper.eq("account", account);
+        ThirdPartyAccount existing = thirdPartyAccountMapper.selectOne(checkWrapper);
+        if (existing != null && !existing.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "该账号已被其他用户绑定");
+        }
+        
+        // 如果已经绑定过，则更新密码
+        if (existing != null && existing.getUserId().equals(userId)) {
+            existing.setPassword(DigestUtils.md5DigestAsHex(password.getBytes()));
+            existing.setUpdateTime(new Date());
+            return thirdPartyAccountMapper.updateById(existing) > 0;
+        }
+        
+        // 创建新的绑定关系
+        ThirdPartyAccount thirdPartyAccount = new ThirdPartyAccount();
+        thirdPartyAccount.setUserId(userId);
+        thirdPartyAccount.setPlatform(platform);
+        thirdPartyAccount.setAccount(account);
+        thirdPartyAccount.setPassword(DigestUtils.md5DigestAsHex(password.getBytes()));
+        thirdPartyAccount.setCreateTime(new Date());
+        thirdPartyAccount.setUpdateTime(new Date());
+        
+        return thirdPartyAccountMapper.insert(thirdPartyAccount) > 0;
+    }
+
+    /**
+     * 解绑第三方账号
+     */
+    @Override
+    public boolean unbindThirdPartyAccount(Long userId, String platform) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户ID无效");
+        }
+        if (!"wechat".equals(platform) && !"qq".equals(platform)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "不支持的平台类型");
+        }
+        
+        QueryWrapper<ThirdPartyAccount> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("user_id", userId);
+        queryWrapper.eq("platform", platform);
+        
+        return thirdPartyAccountMapper.delete(queryWrapper) > 0;
+    }
+
+    /**
+     * 查询用户的第三方账号绑定情况
+     */
+    @Override
+    public java.util.List<com.zzkkyy.usercenter.model.domain.ThirdPartyAccount> getUserThirdPartyAccounts(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户ID无效");
+        }
+        
+        QueryWrapper<ThirdPartyAccount> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("user_id", userId);
+        
+        // 不返回密码字段
+        queryWrapper.select("id", "user_id", "platform", "account", "create_time", "update_time");
+        
+        return thirdPartyAccountMapper.selectList(queryWrapper);
     }
 
 }

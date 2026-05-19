@@ -46,6 +46,30 @@ public interface UserService extends IService<User> {
      */
     User userLogin(String userAccount, String userPassword, HttpServletRequest request);
 
+    /**
+     * 微信登录
+     * @param code 微信授权码
+     * @param request HTTP请求
+     * @return 返回用户信息
+     */
+    User wechatLogin(String code, HttpServletRequest request);
+
+    /**
+     * QQ登录
+     * @param code QQ授权码
+     * @param request HTTP请求
+     * @return 返回用户信息
+     */
+    User qqLogin(String code, HttpServletRequest request);
+
+    /**
+     * 第三方平台模拟登录（微信/QQ）
+     * @param loginRequest 登录请求
+     * @param request HTTP请求
+     * @return 返回用户信息
+     */
+    User thirdPartyLogin(com.zzkkyy.usercenter.model.request.ThirdPartyLoginRequest loginRequest, HttpServletRequest request);
+
     User getSafetyUser(User user);
 
     /**
@@ -172,5 +196,30 @@ public interface UserService extends IService<User> {
      * @return 统计信息
      */
     java.util.Map<String, Object> getSystemStats();
+
+    /**
+     * 绑定第三方账号
+     * @param userId 用户ID
+     * @param platform 平台类型：wechat/qq
+     * @param account 第三方账号
+     * @param password 第三方密码
+     * @return 是否成功
+     */
+    boolean bindThirdPartyAccount(Long userId, String platform, String account, String password);
+
+    /**
+     * 解绑第三方账号
+     * @param userId 用户ID
+     * @param platform 平台类型：wechat/qq
+     * @return 是否成功
+     */
+    boolean unbindThirdPartyAccount(Long userId, String platform);
+
+    /**
+     * 查询用户的第三方账号绑定情况
+     * @param userId 用户ID
+     * @return 绑定信息列表
+     */
+    java.util.List<com.zzkkyy.usercenter.model.domain.ThirdPartyAccount> getUserThirdPartyAccounts(Long userId);
 
 }

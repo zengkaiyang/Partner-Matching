@@ -9,6 +9,10 @@ import com.zzkkyy.usercenter.exception.BusinessException;
 import com.zzkkyy.usercenter.model.domain.User;
 import com.zzkkyy.usercenter.model.request.UserLoginRequest;
 import com.zzkkyy.usercenter.model.request.UserRegisterRequest;
+import com.zzkkyy.usercenter.model.request.WechatLoginRequest;
+import com.zzkkyy.usercenter.model.request.QQLoginRequest;
+import com.zzkkyy.usercenter.model.request.ThirdPartyLoginRequest;
+import com.zzkkyy.usercenter.model.request.BindThirdPartyRequest;
 import com.zzkkyy.usercenter.model.vo.UserVO;
 import com.zzkkyy.usercenter.service.UserService;
 import jakarta.annotation.Resource;
@@ -71,6 +75,112 @@ public class UserController {
         }
         User user =  userService.userLogin(userAccount , userPassword , request);
         return ResultUtils.success(user);
+    }
+
+    /**
+     * 微信登录
+     */
+    @PostMapping("/login/wechat")
+    public BaseResponse<User> wechatLogin(@RequestBody WechatLoginRequest wechatLoginRequest, HttpServletRequest request){
+        if(wechatLoginRequest == null || StringUtils.isBlank(wechatLoginRequest.getCode())){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        // 这里需要调用微信OAuth2.0接口获取用户信息
+        // 由于微信OAuth2.0需要配置appid和secret，这里先返回一个示例实现
+        User user = userService.wechatLogin(wechatLoginRequest.getCode(), request);
+        return ResultUtils.success(user);
+    }
+
+    /**
+     * QQ登录
+     */
+    @PostMapping("/login/qq")
+    public BaseResponse<User> qqLogin(@RequestBody QQLoginRequest qqLoginRequest, HttpServletRequest request){
+        if(qqLoginRequest == null || StringUtils.isBlank(qqLoginRequest.getCode())){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        // 这里需要调用QQ OAuth2.0接口获取用户信息
+        // 由于QQ OAuth2.0需要配置appid和secret，这里先返回一个示例实现
+        User user = userService.qqLogin(qqLoginRequest.getCode(), request);
+        return ResultUtils.success(user);
+    }
+
+    /**
+     * 第三方平台模拟登录（微信/QQ）
+     */
+    @PostMapping("/login/third-party")
+    public BaseResponse<User> thirdPartyLogin(@RequestBody ThirdPartyLoginRequest loginRequest, HttpServletRequest request){
+        if(loginRequest == null){
+            log.error("第三方登录请求为空");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求参数为空");
+        }
+        
+        log.info("收到第三方登录请求 - platform: {}, account: {}, password: {}", 
+                loginRequest.getPlatform(), loginRequest.getAccount(), 
+                loginRequest.getPassword() != null ? "***" : "null");
+        
+        if(StringUtils.isAnyBlank(loginRequest.getPlatform(), loginRequest.getAccount(), loginRequest.getPassword())){
+            log.error("第三方登录参数不完整 - platform: {}, account: {}, password: {}", 
+                    loginRequest.getPlatform(), loginRequest.getAccount(), 
+                    loginRequest.getPassword() != null ? "***" : "null");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "平台、账号和密码不能为空");
+        }
+        
+        User user = userService.thirdPartyLogin(loginRequest, request);
+        return ResultUtils.success(user);
+    }
+
+    /**
+     * 绑定第三方账号
+     */
+    @PostMapping("/bind-third-party")
+    public BaseResponse<Boolean> bindThirdParty(@RequestBody BindThirdPartyRequest bindRequest, HttpServletRequest request){
+        if(bindRequest == null){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求参数为空");
+        }
+        
+        // 获取当前登录用户
+        User loginUser = userService.getLoginUser(request);
+        
+        boolean result = userService.bindThirdPartyAccount(
+            loginUser.getId(), 
+            bindRequest.getPlatform(), 
+            bindRequest.getAccount(), 
+            bindRequest.getPassword()
+        );
+        
+        return ResultUtils.success(result);
+    }
+
+    /**
+     * 解绑第三方账号
+     */
+    @PostMapping("/unbind-third-party")
+    public BaseResponse<Boolean> unbindThirdParty(@RequestBody BindThirdPartyRequest bindRequest, HttpServletRequest request){
+        if(bindRequest == null || StringUtils.isBlank(bindRequest.getPlatform())){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求参数不完整");
+        }
+        
+        // 获取当前登录用户
+        User loginUser = userService.getLoginUser(request);
+        
+        boolean result = userService.unbindThirdPartyAccount(loginUser.getId(), bindRequest.getPlatform());
+        
+        return ResultUtils.success(result);
+    }
+
+    /**
+     * 查询用户的第三方账号绑定情况
+     */
+    @GetMapping("/third-party-accounts")
+    public BaseResponse<java.util.List<com.zzkkyy.usercenter.model.domain.ThirdPartyAccount>> getThirdPartyAccounts(HttpServletRequest request){
+        // 获取当前登录用户
+        User loginUser = userService.getLoginUser(request);
+        
+        java.util.List<com.zzkkyy.usercenter.model.domain.ThirdPartyAccount> accounts = 
+            userService.getUserThirdPartyAccounts(loginUser.getId());
+        
+        return ResultUtils.success(accounts);
     }
 
     @PostMapping("/logout")
