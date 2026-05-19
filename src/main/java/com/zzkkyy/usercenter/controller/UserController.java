@@ -43,9 +43,8 @@ public class UserController {
     private RedisTemplate<String, Object> redisTemplate;
 
     @PostMapping("/register")
-    public BaseResponse<Long> userRegister(@RequestBody UserRegisterRequest userRegisterRequest){
+    public BaseResponse<Long> userRegister(@RequestBody UserRegisterRequest userRegisterRequest, HttpServletRequest request){
         if(userRegisterRequest == null){
-//            return ResultUtils.error(ErrorCode.PARAMS_ERROR);
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         String userAccount = userRegisterRequest.getUserAccount();
@@ -56,7 +55,7 @@ public class UserController {
         if(StringUtils.isAnyBlank(userAccount,userPassword,checkPassword,planetCode)){
             return ResultUtils.error(ErrorCode.PARAMS_ERROR);
         }
-        long result = userService.userRegister(userAccount,userPassword,checkPassword,planetCode,tags);
+        long result = userService.userRegisterFull(userRegisterRequest, request);
         return ResultUtils.success(result);
     }
 
@@ -182,6 +181,78 @@ public class UserController {
         }
         User user = userService.getLoginUser(request);
         return ResultUtils.success(userService.matchUsers(num,user));
+    }
+
+    /**
+     * 获取最匹配的用户（带匹配度）
+     * @param num 返回用户数量
+     * @param request HTTP请求
+     * @return 匹配的用户列表（包含匹配度）
+     */
+    @GetMapping("/match/score")
+    public BaseResponse<List<com.zzkkyy.usercenter.model.vo.MatchedUserVO>> matchUsersWithScore(
+            long num, HttpServletRequest request){
+        if(num <= 0 || num > 20){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        User user = userService.getLoginUser(request);
+        return ResultUtils.success(userService.matchUsersWithScore(num, user));
+    }
+
+    /**
+     * 获取热点用户列表（从 Redis 缓存读取）
+     * @param request HTTP请求
+     * @return 热点用户列表
+     */
+    @GetMapping("/hot")
+    public BaseResponse<List<User>> getHotUsers(HttpServletRequest request){
+        // 尝试从缓存获取
+        String redisKey = "yupao:user:hot:list";
+        ValueOperations<String,Object> valueOperations = redisTemplate.opsForValue();
+        List<User> hotUsers = (List<User>) valueOperations.get(redisKey);
+        
+        if(hotUsers != null && !hotUsers.isEmpty()){
+            log.info("从缓存获取热点用户列表，数量: {}", hotUsers.size());
+            // 为每个用户注入头像
+            List<User> usersWithAvatar = hotUsers.stream()
+                    .map(user -> {
+                        if(StringUtils.isBlank(user.getAvatarUrl())) {
+                            user.setAvatarUrl(com.zzkkyy.usercenter.utils.AvatarUtils.getAvatarByUserId(user.getId()));
+                        }
+                        return user;
+                    })
+                    .collect(Collectors.toList());
+            return ResultUtils.success(usersWithAvatar);
+        }
+        
+        // 缓存未命中，直接查询数据库
+        log.info("缓存未命中，从数据库查询热点用户");
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.isNotNull("tags");
+        queryWrapper.ne("tags", "");
+        queryWrapper.orderByDesc("createTime");
+        queryWrapper.last("LIMIT 20");
+        
+        List<User> userList = userService.list(queryWrapper);
+        List<User> safetyUsers = userList.stream()
+                .map(userService::getSafetyUser)
+                .map(user -> {
+                    // 注入头像
+                    if(StringUtils.isBlank(user.getAvatarUrl())) {
+                        user.setAvatarUrl(com.zzkkyy.usercenter.utils.AvatarUtils.getAvatarByUserId(user.getId()));
+                    }
+                    return user;
+                })
+                .collect(Collectors.toList());
+        
+        // 写入缓存（5分钟）
+        try {
+            valueOperations.set(redisKey, safetyUsers, 5, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.error("缓存热点用户失败", e);
+        }
+        
+        return ResultUtils.success(safetyUsers);
     }
 
 

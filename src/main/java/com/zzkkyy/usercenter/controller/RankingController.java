@@ -20,7 +20,7 @@ import java.util.List;
  * 排行榜控制器
  */
 @RestController
-@RequestMapping("/api/ranking")
+@RequestMapping("/ranking")
 @Tag(name = "排行榜", description = "各类排行榜接口")
 @Slf4j
 public class RankingController {

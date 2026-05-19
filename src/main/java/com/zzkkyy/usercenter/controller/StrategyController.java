@@ -17,7 +17,7 @@ import java.util.List;
  * 攻略控制器
  */
 @RestController
-@RequestMapping("/api/strategy")
+@RequestMapping("/strategy")
 @Tag(name = "攻略管理", description = "攻略相关接口")
 @Slf4j
 public class StrategyController {

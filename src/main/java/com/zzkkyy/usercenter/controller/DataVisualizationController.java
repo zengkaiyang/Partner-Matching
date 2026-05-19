@@ -20,7 +20,7 @@ import java.util.Map;
  * 数据可视化控制器
  */
 @RestController
-@RequestMapping("/api/data")
+@RequestMapping("/data")
 @Tag(name = "数据可视化", description = "数据统计和可视化接口")
 @Slf4j
 public class DataVisualizationController {

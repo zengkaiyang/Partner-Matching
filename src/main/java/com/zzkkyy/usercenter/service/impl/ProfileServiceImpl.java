@@ -38,6 +38,18 @@ public class ProfileServiceImpl implements ProfileService {
     @Resource
     private UserExperienceService userExperienceService;
 
+    @Resource
+    private PostFavoriteMapper postFavoriteMapper;
+
+    @Resource
+    private StrategyFavoriteMapper strategyFavoriteMapper;
+
+    @Resource
+    private ForumPostMapper forumPostMapper;
+
+    @Resource
+    private StrategyMapper strategyMapper;
+
     @Override
     public User getUserProfile(long userId) {
         User user = userMapper.selectById(userId);
@@ -236,4 +248,63 @@ public class ProfileServiceImpl implements ProfileService {
         queryWrapper.eq("following_id", userId);
         return Math.toIntExact(userFollowMapper.selectCount(queryWrapper));
     }
+
+    @Override
+    public List<?> getFavorites(long userId, String type) {
+        if ("strategy".equals(type)) {
+            // 获取攻略收藏
+            QueryWrapper<StrategyFavorite> queryWrapper = new QueryWrapper<>();
+            queryWrapper.eq("user_id", userId)
+                    .orderByDesc("create_time");
+            List<StrategyFavorite> favorites = strategyFavoriteMapper.selectList(queryWrapper);
+
+            // 关联查询攻略详情
+            return favorites.stream().map(fav -> {
+                Strategy strategy = strategyMapper.selectById(fav.getStrategyId());
+                return strategy;
+            }).filter(s -> s != null).collect(Collectors.toList());
+        } else if ("forum".equals(type)) {
+            // 获取论坛帖子收藏
+            QueryWrapper<PostFavorite> queryWrapper = new QueryWrapper<>();
+            queryWrapper.eq("user_id", userId)
+                    .orderByDesc("create_time");
+            List<PostFavorite> favorites = postFavoriteMapper.selectList(queryWrapper);
+
+            // 关联查询帖子详情
+            return favorites.stream().map(fav -> {
+                ForumPost post = forumPostMapper.selectById(fav.getPostId());
+                return post;
+            }).filter(p -> p != null).collect(Collectors.toList());
+        }
+        return List.of();
+    }
+
+
+    @Override
+    @Transactional
+    public boolean unfavorite(long favoriteId) {
+        // 尝试从攻略收藏中删除
+        QueryWrapper<StrategyFavorite> strategyQuery = new QueryWrapper<>();
+        strategyQuery.eq("id", favoriteId);
+        int strategyDeleted = strategyFavoriteMapper.delete(strategyQuery);
+
+        if (strategyDeleted > 0) {
+            log.info("取消攻略收藏成功，favoriteId: {}", favoriteId);
+            return true;
+        }
+
+        // 尝试从帖子收藏中删除
+        QueryWrapper<PostFavorite> postQuery = new QueryWrapper<>();
+        postQuery.eq("id", favoriteId);
+        int postDeleted = postFavoriteMapper.delete(postQuery);
+
+        if (postDeleted > 0) {
+            log.info("取消帖子收藏成功，favoriteId: {}", favoriteId);
+            return true;
+        }
+
+        log.warn("未找到收藏记录，favoriteId: {}", favoriteId);
+        return false;
+    }
+
 }

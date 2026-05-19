@@ -9,6 +9,7 @@ import com.zzkkyy.usercenter.common.ErrorCode;
 import com.zzkkyy.usercenter.exception.BusinessException;
 import com.zzkkyy.usercenter.mapper.UserMapper;
 import com.zzkkyy.usercenter.model.domain.User;
+import com.zzkkyy.usercenter.model.request.UserRegisterRequest;
 import com.zzkkyy.usercenter.model.vo.UserVO;
 import com.zzkkyy.usercenter.service.UserService;
 import com.zzkkyy.usercenter.utils.AlgorithmUtils;
@@ -23,6 +24,10 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.DigestUtils;
 
 import java.util.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -49,6 +54,25 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Override
     public Long userRegister(String userAccount, String userPassword, String checkPassword,String plantCode,String tags) {
+        // 创建 UserRegisterRequest 对象
+        UserRegisterRequest request = new UserRegisterRequest();
+        request.setUserAccount(userAccount);
+        request.setUserPassword(userPassword);
+        request.setCheckPassword(checkPassword);
+        request.setPlanetCode(plantCode);
+        request.setTags(tags);
+        
+        return userRegisterFull(request, null);
+    }
+
+    @Override
+    public Long userRegisterFull(UserRegisterRequest userRegisterRequest, HttpServletRequest request) {
+        String userAccount = userRegisterRequest.getUserAccount();
+        String userPassword = userRegisterRequest.getUserPassword();
+        String checkPassword = userRegisterRequest.getCheckPassword();
+        String plantCode = userRegisterRequest.getPlanetCode();
+        String tags = userRegisterRequest.getTags();
+        
         //1.利用isAnyBlank校验是否为空
         if(StringUtils.isAnyBlank(userAccount,userPassword,checkPassword,plantCode)){
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"参数为空");
@@ -94,8 +118,53 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setUserPassword(encryptPassword);
         user.setPlanetCode(plantCode);
         user.setTags(tags);
+        
+        // 设置用户名
+        if (StringUtils.isNotBlank(userRegisterRequest.getUsername())) {
+            user.setUsername(userRegisterRequest.getUsername());
+        }
+        
+        // 设置性别
+        if (userRegisterRequest.getGender() != null) {
+            user.setGender(userRegisterRequest.getGender());
+        }
+        
+        // 设置邮箱
+        if (StringUtils.isNotBlank(userRegisterRequest.getEmail())) {
+            user.setEmail(userRegisterRequest.getEmail());
+        }
+        
+        // 设置生日并计算年龄
+        if (userRegisterRequest.getBirthday() != null) {
+            user.setBirthday(userRegisterRequest.getBirthday());
+            
+            // 计算年龄
+            Calendar birthCal = Calendar.getInstance();
+            birthCal.setTime(userRegisterRequest.getBirthday());
+            Calendar nowCal = Calendar.getInstance();
+            int age = nowCal.get(Calendar.YEAR) - birthCal.get(Calendar.YEAR);
+            // 如果还没过生日，年龄减1
+            if (nowCal.get(Calendar.MONTH) < birthCal.get(Calendar.MONTH) ||
+                (nowCal.get(Calendar.MONTH) == birthCal.get(Calendar.MONTH) && 
+                 nowCal.get(Calendar.DAY_OF_MONTH) < birthCal.get(Calendar.DAY_OF_MONTH))) {
+                age--;
+            }
+            user.setAge(age);
+        }
+        
         // 为新用户分配随机头像
         user.setAvatarUrl(AvatarUtils.getRandomAvatar());
+        
+        // 设置初始等级为1
+        user.setLevel(1);
+        
+        // 根据IP获取城市
+        if (request != null) {
+            String ip = getRealIp(request);
+            String city = getCityByIp(ip);
+            user.setCity(city);
+        }
+        
         boolean saveResult = this.save(user);
         if(!saveResult){
             throw new BusinessException(ErrorCode.SAVE_ERROR);
@@ -165,6 +234,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         safetyUser.setUserStatus(user.getUserStatus());
         safetyUser.setCreateTime(user.getCreateTime());
         safetyUser.setTags(user.getTags());
+        safetyUser.setBirthday(user.getBirthday());
+        safetyUser.setAge(user.getAge());
+        safetyUser.setCity(user.getCity());
 
         // 如果用户没有头像，自动分配一个随机头像
         if (StringUtils.isBlank(safetyUser.getAvatarUrl())) {
@@ -300,6 +372,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         Map<Long,List<User>> userIdUserListMap = this.list(wrapper)
                 .stream()
                 .map(user -> getSafetyUser(user))
+                .map(user -> {
+                    // 注入头像
+                    if(StringUtils.isBlank(user.getAvatarUrl())) {
+                        user.setAvatarUrl(AvatarUtils.getAvatarByUserId(user.getId()));
+                    }
+                    return user;
+                })
                 .collect(Collectors.groupingBy(User::getId));
         List<User> finalUserList = new ArrayList<>();
         for (Long userId : userIdList) {
@@ -307,6 +386,92 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         }
         return finalUserList;
 
+    }
+
+    @Override
+    public List<com.zzkkyy.usercenter.model.vo.MatchedUserVO> matchUsersWithScore(long num, User loginUser) {
+        // 1. 获取当前用户的标签
+        String tags = loginUser.getTags();
+        if (StringUtils.isBlank(tags)) {
+            return new ArrayList<>();
+        }
+        
+        Gson gson = new Gson();
+        List<String> currentUserTags = gson.fromJson(tags, new TypeToken<List<String>>() {}.getType());
+        
+        // 2. 查询所有有标签的用户（排除自己）
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.select("id", "username", "avatarUrl", "tags", "gender", "planetCode");
+        queryWrapper.isNotNull("tags");
+        queryWrapper.ne("tags", "");
+        queryWrapper.ne("id", loginUser.getId());
+        
+        List<User> userList = this.list(queryWrapper);
+        
+        // 3. 计算每个用户的编辑距离和匹配度
+        List<Pair<User, Long>> userDistanceList = userList.stream()
+                .map(user -> {
+                    String userTagsStr = user.getTags();
+                    if (StringUtils.isBlank(userTagsStr)) {
+                        return null;
+                    }
+                    
+                    try {
+                        List<String> userTags = gson.fromJson(userTagsStr, new TypeToken<List<String>>() {}.getType());
+                        if (userTags == null || userTags.isEmpty()) {
+                            return null;
+                        }
+                        
+                        // 计算编辑距离
+                        long distance = AlgorithmUtils.minDistance(currentUserTags, userTags);
+                        return new Pair<>(user, distance);
+                    } catch (Exception e) {
+                        log.error("解析用户标签失败: {}", userTagsStr, e);
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        
+        // 4. 按编辑距离从小到大排序，取前 num 个
+        List<Pair<User, Long>> topUserList = userDistanceList.stream()
+                .sorted(Comparator.comparingLong(Pair::getValue))
+                .limit(num)
+                .collect(Collectors.toList());
+        
+        // 5. 转换为 VO 对象，计算匹配度并注入头像
+        return topUserList.stream()
+                .map(pair -> {
+                    User user = pair.getKey();
+                    long distance = pair.getValue();
+                    
+                    // 计算匹配度
+                    List<String> userTags = gson.fromJson(user.getTags(), new TypeToken<List<String>>() {}.getType());
+                    double similarity = AlgorithmUtils.calculateSimilarityScore(currentUserTags, userTags);
+                    int matchRate = (int) Math.round(similarity * 100);
+                    
+                    // 创建 VO 对象
+                    com.zzkkyy.usercenter.model.vo.MatchedUserVO vo = 
+                            new com.zzkkyy.usercenter.model.vo.MatchedUserVO();
+                    vo.setId(user.getId());
+                    vo.setUsername(user.getUsername());
+                    
+                    // 注入头像：如果用户没有头像，则根据用户ID生成固定头像
+                    String avatarUrl = user.getAvatarUrl();
+                    if (StringUtils.isBlank(avatarUrl)) {
+                        avatarUrl = com.zzkkyy.usercenter.utils.AvatarUtils.getAvatarByUserId(user.getId());
+                    }
+                    vo.setAvatarUrl(avatarUrl);
+                    
+                    vo.setTags(user.getTags());
+                    vo.setGender(user.getGender());
+                    vo.setPlanetCode(user.getPlanetCode());
+                    vo.setMatchScore(similarity);
+                    vo.setMatchRate(matchRate);
+                    
+                    return vo;
+                })
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -407,6 +572,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         // 通过ID批量查询，确保数据完整性
         Map<Long, User> userMap = this.listByIds(userIds).stream()
                 .map(this::getSafetyUser)
+                .map(user -> {
+                    // 注入头像
+                    if(StringUtils.isBlank(user.getAvatarUrl())) {
+                        user.setAvatarUrl(AvatarUtils.getAvatarByUserId(user.getId()));
+                    }
+                    return user;
+                })
                 .collect(Collectors.toMap(User::getId, u -> u));
 
         // 保持排序顺序返回结果
@@ -541,6 +713,122 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         stats.put("activeUsers", 0);
         
         return stats;
+    }
+
+    /**
+     * 获取真实IP地址
+     * @param request HTTP请求
+     * @return IP地址
+     */
+    private String getRealIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (StringUtils.isNotBlank(ip) && !"unknown".equalsIgnoreCase(ip)) {
+            // 多次反向代理后会有多个IP值，第一个为真实IP
+            int index = ip.indexOf(',');
+            if (index != -1) {
+                return ip.substring(0, index);
+            } else {
+                return ip;
+            }
+        }
+        
+        ip = request.getHeader("X-Real-IP");
+        if (StringUtils.isNotBlank(ip) && !"unknown".equalsIgnoreCase(ip)) {
+            return ip;
+        }
+        
+        return request.getRemoteAddr();
+    }
+
+    /**
+     * 根据IP地址获取城市信息（使用高德地图API）
+     * @param ip IP地址
+     * @return 城市名称
+     */
+    private String getCityByIp(String ip) {
+        // 如果是本地IP，不返回"本地"，而是调用高德API获取真实城市
+        // 高德API支持不传IP参数，会自动获取请求来源的真实IP
+        String targetIp = ip;
+        if ("127.0.0.1".equals(ip) || "0:0:0:0:0:0:0:1".equals(ip) || "localhost".equals(ip)) {
+            // 本地开发环境，不传IP参数让高德自动识别
+            targetIp = null;
+            log.info("检测到本地IP，将调用高德API自动获取出口IP的城市信息");
+        }
+            
+        try {
+            // 高德地图 IP 定位 API
+            String key = "e4cce6eaec0183cfd41abd573187b6f7";
+            String apiUrl;
+            if (targetIp != null) {
+                apiUrl = String.format(
+                    "https://restapi.amap.com/v3/ip?ip=%s&key=%s",
+                    targetIp, key
+                );
+            } else {
+                // 不传IP参数，高德会自动识别请求来源IP
+                apiUrl = String.format(
+                    "https://restapi.amap.com/v3/ip?key=%s",
+                    key
+                );
+            }
+                
+            log.info("调用高德IP定位API: {}", apiUrl);
+                
+            // 发送 HTTP 请求
+            URL url = new URL(apiUrl);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+                
+            // 读取响应
+            BufferedReader reader = new BufferedReader(
+                new InputStreamReader(conn.getInputStream(), "UTF-8")
+            );
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            reader.close();
+            conn.disconnect();
+                
+            String responseStr = response.toString();
+            log.info("高德API响应: {}", responseStr);
+                
+            // 解析 JSON 响应
+            Gson gson = new Gson();
+            Map<String, Object> resultMap = gson.fromJson(responseStr, Map.class);
+                
+            // 检查返回状态
+            String status = (String) resultMap.get("status");
+            if ("1".equals(status)) {
+                // 获取城市信息
+                String province = (String) resultMap.get("province");
+                String city = (String) resultMap.get("city");
+                    
+                // 组合省份和城市
+                if (StringUtils.isNotBlank(province) && StringUtils.isNotBlank(city)) {
+                    String result = province + " " + city;
+                    log.info("成功获取城市信息: {}", result);
+                    return result;
+                } else if (StringUtils.isNotBlank(province)) {
+                    log.info("成功获取省份信息: {}", province);
+                    return province;
+                } else if (StringUtils.isNotBlank(city)) {
+                    log.info("成功获取城市信息: {}", city);
+                    return city;
+                }
+            }
+                
+            // 如果获取失败，返回未知
+            log.warn("高德API获取城市失败，状态: {}", status);
+            return "未知";
+                
+        } catch (Exception e) {
+            log.error("调用高德API获取IP城市失败: {}", ip, e);
+            return "未知";
+        }
     }
 
 }

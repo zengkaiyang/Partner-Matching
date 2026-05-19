@@ -19,7 +19,7 @@ import java.util.Map;
  * 后台管理控制器
  */
 @RestController
-@RequestMapping("/api/admin")
+@RequestMapping("/admin")
 @Tag(name = "后台管理", description = "系统管理接口")
 @Slf4j
 public class AdminController {

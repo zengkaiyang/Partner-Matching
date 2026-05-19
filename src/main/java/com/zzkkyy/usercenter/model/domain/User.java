@@ -106,6 +106,11 @@ public class User implements Serializable {
     private Date birthday;
 
     /**
+     * 年龄
+     */
+    private Integer age;
+
+    /**
      * 积分（用于排行榜）
      */
     @TableField(exist = false)
@@ -114,7 +119,6 @@ public class User implements Serializable {
     /**
      * 等级（V1-V10）
      */
-    @TableField(exist = false)
     private Integer level;
 
     /**

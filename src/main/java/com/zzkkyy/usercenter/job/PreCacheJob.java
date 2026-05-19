@@ -42,7 +42,7 @@ public class PreCacheJob {
     private RedissonClient redissonClient;
 
     /**
-     * 加载与缓存用户
+     * 加载与缓存推荐用户（针对特定用户）
      */
     @Scheduled(cron = "0 28 10 * * *")
     public void doCacheRecommendUser(){
@@ -66,6 +66,51 @@ public class PreCacheJob {
             log.error("doCacheRecommendUser error",e);
         } finally {
             //只能释放自己的锁
+            if(lock.isHeldByCurrentThread()){
+                lock.unlock();
+            }
+        }
+    }
+
+    /**
+     * 缓存热点用户列表（主页使用）
+     * 每小时执行一次
+     */
+    @Scheduled(cron = "0 0 * * * ?")
+    public void doCacheHotUsers(){
+        RLock lock = redissonClient.getLock("yupao:precachejob:hotusers:lock");
+        try {
+            if(lock.tryLock(0,30000,TimeUnit.MILLISECONDS)){
+                log.info("开始缓存热点用户列表...");
+                
+                // 查询有标签的活跃用户，按创建时间排序
+                QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+                queryWrapper.isNotNull("tags");
+                queryWrapper.ne("tags", "");
+                queryWrapper.orderByDesc("create_time");
+                queryWrapper.last("LIMIT 20");
+                
+                List<User> hotUsers = userService.list(queryWrapper);
+                
+                // 脱敏处理
+                List<User> safetyUsers = hotUsers.stream()
+                        .map(userService::getSafetyUser)
+                        .collect(java.util.stream.Collectors.toList());
+                
+                // 存入Redis
+                String redisKey = "yupao:user:hot:list";
+                ValueOperations<String,Object> valueOperations = redisTemplate.opsForValue();
+                try {
+                    // 缓存1小时
+                    valueOperations.set(redisKey, safetyUsers, 1, TimeUnit.HOURS);
+                    log.info("热点用户列表缓存成功，数量: {}", safetyUsers.size());
+                } catch (Exception e) {
+                    log.error("缓存热点用户列表失败", e);
+                }
+            }
+        } catch (InterruptedException e) {
+            log.error("doCacheHotUsers error", e);
+        } finally {
             if(lock.isHeldByCurrentThread()){
                 lock.unlock();
             }

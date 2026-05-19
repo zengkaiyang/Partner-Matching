@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS user_info (
     planet_code STRING COMMENT '星球编号',
     tags STRING COMMENT '标签JSON数组',
     bio STRING COMMENT '个人简介',
+    city STRING COMMENT '城市',
+    level INT COMMENT '等级(LV1-LV8)',
+    experience BIGINT COMMENT '经验值',
+    birthday DATE COMMENT '生日',
     create_time TIMESTAMP COMMENT '创建时间',
     update_time TIMESTAMP COMMENT '更新时间',
     is_delete TINYINT COMMENT '是否删除 0-未删除'

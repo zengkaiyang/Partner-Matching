@@ -57,4 +57,20 @@ public interface ProfileService {
      * 检查是否已关注
      */
     boolean isFollowing(long followerId, long followingId);
+
+    /**
+     * 获取用户的收藏列表
+     * @param userId 用户ID
+     * @param type 类型：strategy-攻略，forum-论坛帖子
+     * @return 收藏列表
+     */
+    List<?> getFavorites(long userId, String type);
+
+    /**
+     * 取消收藏
+     * @param favoriteId 收藏记录ID
+     * @return 是否成功
+     */
+    boolean unfavorite(long favoriteId);
+
 }

@@ -20,7 +20,7 @@ import java.util.List;
  * 个人信息控制器
  */
 @RestController
-@RequestMapping("/api/profile")
+@RequestMapping("/profile")
 @Tag(name = "个人信息", description = "用户个人资料相关接口")
 @Slf4j
 public class ProfileController {
@@ -121,6 +121,22 @@ public class ProfileController {
             @RequestParam long followerId,
             @RequestParam long followingId) {
         boolean result = profileService.isFollowing(followerId, followingId);
+        return ResultUtils.success(result);
+    }
+    @GetMapping("/favorites")
+    @Operation(summary = "我的收藏")
+    public BaseResponse<List<?>> getFavorites(
+            @RequestParam long userId,
+            @RequestParam String type) {
+        List<?> favorites = profileService.getFavorites(userId, type);
+        return ResultUtils.success(favorites);
+    }
+
+    @PostMapping("/unfavorite")
+    @Operation(summary = "取消收藏")
+    public BaseResponse<Boolean> unfavorite(@RequestBody java.util.Map<String, Long> request) {
+        Long id = request.get("id");
+        boolean result = profileService.unfavorite(id);
         return ResultUtils.success(result);
     }
 }

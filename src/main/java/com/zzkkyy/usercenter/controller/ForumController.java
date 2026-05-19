@@ -18,7 +18,7 @@ import java.util.Map;
  * 论坛控制器
  */
 @RestController
-@RequestMapping("/api/forum")
+@RequestMapping("/forum")
 @Tag(name = "论坛管理", description = "论坛帖子相关接口")
 @Slf4j
 public class ForumController {

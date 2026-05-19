@@ -31,6 +31,14 @@ public interface UserService extends IService<User> {
     Long userRegister(String userAccount, String userPassword,String checkPassword,String plantCode,String tags);
 
     /**
+     * 用户注册（完整版）
+     * @param userRegisterRequest 注册请求对象
+     * @param request HTTP请求
+     * @return 新用户id
+     */
+    Long userRegisterFull(com.zzkkyy.usercenter.model.request.UserRegisterRequest userRegisterRequest, jakarta.servlet.http.HttpServletRequest request);
+
+    /**
      * 用户登录
      * @param userAccount 用户账户
      * @param userPassword  用户密码
@@ -90,6 +98,14 @@ public interface UserService extends IService<User> {
      * @return
      */
     List<User> matchUsers(long num, User loginUser);
+
+    /**
+     * 匹配用户（带匹配度）
+     * @param num 返回用户数量
+     * @param loginUser 登录用户
+     * @return 匹配的用户列表（包含匹配度）
+     */
+    List<com.zzkkyy.usercenter.model.vo.MatchedUserVO> matchUsersWithScore(long num, User loginUser);
 
     /**
      * 获取随机标签列表
