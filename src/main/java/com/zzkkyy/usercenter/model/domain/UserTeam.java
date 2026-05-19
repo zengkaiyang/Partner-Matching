@@ -1,9 +1,6 @@
 package com.zzkkyy.usercenter.model.domain;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableLogic;
-import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 
 import java.util.Date;
@@ -19,36 +16,43 @@ public class UserTeam {
      * id
      */
     @TableId(type = IdType.AUTO)
+    @TableField("id")
     private Long id;
 
     /**
      * 用户id
      */
+    @TableField("userId")
     private Long userId;
 
     /**
      * 队伍id
      */
+    @TableField("teamId")
     private Long teamId;
 
     /**
      * 加入时间
      */
+    @TableField("joinTime")
     private Date joinTime;
 
     /**
      * 创建时间
      */
+    @TableField("createTime")
     private Date createTime;
 
     /**
      * 
      */
+    @TableField("updateTime")
     private Date updateTime;
 
     /**
      * 是否删除
      */
     @TableLogic
+    @TableField("isDelete")
     private Integer isDelete;
 }

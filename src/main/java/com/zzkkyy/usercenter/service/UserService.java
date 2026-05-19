@@ -7,6 +7,7 @@ import com.zzkkyy.usercenter.model.vo.UserVO;
 import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.List;
+import java.util.Map;
 
 import static com.zzkkyy.usercenter.contant.UserConstant.ADMIN_ROLE;
 import static com.zzkkyy.usercenter.contant.UserConstant.USER_LOGIN_STATE;
@@ -45,6 +46,30 @@ public interface UserService extends IService<User> {
      * @return 返回用户信息
      */
     User userLogin(String userAccount, String userPassword, HttpServletRequest request);
+
+    /**
+     * 微信登录
+     * @param code 微信授权码
+     * @param request HTTP请求
+     * @return 返回用户信息
+     */
+    User wechatLogin(String code, HttpServletRequest request);
+
+    /**
+     * QQ登录
+     * @param code QQ授权码
+     * @param request HTTP请求
+     * @return 返回用户信息
+     */
+    User qqLogin(String code, HttpServletRequest request);
+
+    /**
+     * 第三方平台模拟登录（微信/QQ）
+     * @param loginRequest 登录请求
+     * @param request HTTP请求
+     * @return 返回用户信息
+     */
+    User thirdPartyLogin(com.zzkkyy.usercenter.model.request.ThirdPartyLoginRequest loginRequest, HttpServletRequest request);
 
     User getSafetyUser(User user);
 
@@ -115,12 +140,20 @@ public interface UserService extends IService<User> {
     List<String> getRandomTags(int num);
 
     /**
-     * 根据标签相似度搜索用户（使用编辑距离算法）
+     * 根据标签相似度搜索用户（使用 Jaccard 相似度算法）
      * @param tags 搜索标签
      * @param loginUser 登录用户
      * @return 匹配的用户列表
      */
     List<User> searchUsersByTagsMatch(List<String> tags, User loginUser);
+
+    /**
+     * 根据标签相似度搜索用户（带匹配度）
+     * @param tags 搜索标签
+     * @param loginUser 登录用户
+     * @return 包含用户信息和匹配度的列表
+     */
+    List<Map<String, Object>> searchUsersByTagsMatchWithScore(List<String> tags, User loginUser);
 
     /**
      * 获取用户列表（分页）
@@ -173,4 +206,43 @@ public interface UserService extends IService<User> {
      */
     java.util.Map<String, Object> getSystemStats();
 
+    /**
+     * 绑定第三方账号
+     * @param userId 用户ID
+     * @param platform 平台类型：wechat/qq
+     * @param account 第三方账号
+     * @param password 第三方密码
+     * @return 是否成功
+     */
+    boolean bindThirdPartyAccount(Long userId, String platform, String account, String password);
+
+    /**
+     * 解绑第三方账号
+     * @param userId 用户ID
+     * @param platform 平台类型：wechat/qq
+     * @return 是否成功
+     */
+    boolean unbindThirdPartyAccount(Long userId, String platform);
+
+    /**
+     * 查询用户的第三方账号绑定情况
+     * @param userId 用户ID
+     * @return 绑定信息列表
+     */
+    java.util.List<com.zzkkyy.usercenter.model.domain.ThirdPartyAccount> getUserThirdPartyAccounts(Long userId);
+    
+    /**
+     * 获取按经验值排序的TOP用户
+     */
+    /**
+     * 获取经验值最高的用户（按等级排序）
+     * @param limit 返回数量
+     * @return 用户列表
+     */
+    List<User> getTopUsersByExperience(int limit);
+    
+    /**
+     * 根据ID获取用户（公开信息）
+     */
+    User getUserById(long userId);
 }

@@ -76,7 +76,18 @@ public interface StrategyService {
     Page<Strategy> getUserFavorites(long userId, int pageNum, int pageSize);
     
     /**
-     * 获取热门攻略排行榜
+     * 获取用户点赞的攻略
+     */
+    Page<Strategy> getUserLikedStrategies(long userId, int pageNum, int pageSize);
+    
+    /**
+     * 获取热门攻略排行榜（按热度排序）
      */
     List<Strategy> getHotStrategies(int limit);
+    
+    /**
+     * 计算热度分数
+     * 热度 = 浏览量 × 0.3 + 点赞数 × 2 + 收藏数 × 1.5
+     */
+    double calculateHeatScore(long viewCount, long likeCount, long favoriteCount);
 }

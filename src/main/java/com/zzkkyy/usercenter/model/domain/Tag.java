@@ -17,6 +17,7 @@ public class Tag implements Serializable {
      * 标签ID
      */
     @TableId(type = IdType.AUTO)
+    @TableField("id")
     private Long id;
 
     /**

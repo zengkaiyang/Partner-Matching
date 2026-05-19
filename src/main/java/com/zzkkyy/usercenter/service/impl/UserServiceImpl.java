@@ -8,12 +8,16 @@ import com.google.gson.reflect.TypeToken;
 import com.zzkkyy.usercenter.common.ErrorCode;
 import com.zzkkyy.usercenter.exception.BusinessException;
 import com.zzkkyy.usercenter.mapper.UserMapper;
+import com.zzkkyy.usercenter.mapper.ThirdPartyAccountMapper;
 import com.zzkkyy.usercenter.model.domain.User;
 import com.zzkkyy.usercenter.model.request.UserRegisterRequest;
 import com.zzkkyy.usercenter.model.vo.UserVO;
 import com.zzkkyy.usercenter.service.UserService;
+import com.zzkkyy.usercenter.config.SocialLoginConfig;
+import com.zzkkyy.usercenter.model.domain.ThirdPartyAccount;
 import com.zzkkyy.usercenter.utils.AlgorithmUtils;
 import com.zzkkyy.usercenter.utils.AvatarUtils;
+import com.zzkkyy.usercenter.utils.OAuth2Utils;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +51,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Resource
     private UserMapper userMapper;
+    
+    @Resource
+    private ThirdPartyAccountMapper thirdPartyAccountMapper;
+    
+    @Resource
+    private SocialLoginConfig socialLoginConfig;
+    
     /**
      * 盐值，混淆密码
      */
@@ -158,11 +169,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         // 设置初始等级为1
         user.setLevel(1);
         
-        // 根据IP获取城市
-        if (request != null) {
-            String ip = getRealIp(request);
-            String city = getCityByIp(ip);
-            user.setCity(city);
+        // 城市由用户注册时手动填写或由用户后续在个人信息页面修改
+        // 如果请求中带有城市信息（如注册接口传入），则使用该城市
+        if (StringUtils.isNotBlank(user.getCity())) {
+            log.info("使用用户手动填写的城市: {}", user.getCity());
+        } else {
+            log.info("用户未设置城市，可在个人信息页面补充");
         }
         
         boolean saveResult = this.save(user);
@@ -182,8 +194,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (userAccount.length() < 4){
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"账号长度小于4位");
         }
-        if(userPassword.length() < 8){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"密码长度小于8位");
+        // 密码长度至少6位
+        if(userPassword.length() < 6){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"密码长度不能少于6位");
         }
         //账户不能包含特殊字符
         String vaildPattern = "[`~!@#$%^&*()+=|{}':;',\\[\\].<>/?~！@#￥%……&*（）——+|{}【】‘；：”“’。，、？]";
@@ -207,6 +220,136 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         User safetyUser = getSafetyUser(user);
         request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
         return safetyUser;
+    }
+
+    /**
+     * 微信登录
+     */
+    @Override
+    public User wechatLogin(String code, HttpServletRequest request) {
+        // 调用微信OAuth2.0接口获取用户信息
+        String appId = socialLoginConfig.getWechat().getAppId();
+        String appSecret = socialLoginConfig.getWechat().getAppSecret();
+        
+        if (appId == null || appSecret == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "微信登录未配置，请联系管理员");
+        }
+        
+        // 获取access_token和openid
+        Map<String, Object> tokenInfo = OAuth2Utils.getWechatAccessTokenAndOpenId(appId, appSecret, code);
+        if (tokenInfo == null || !tokenInfo.containsKey("openid")) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "微信登录失败，无法获取用户信息");
+        }
+        
+        String openId = (String) tokenInfo.get("openid");
+        String accessToken = (String) tokenInfo.get("access_token");
+        
+        // 获取用户详细信息
+        Map<String, Object> userInfo = OAuth2Utils.getWechatUserInfo(accessToken, openId);
+        if (userInfo == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "微信登录失败，无法获取用户详细信息");
+        }
+        
+        String nickname = (String) userInfo.getOrDefault("nickname", "微信用户");
+        String avatarUrl = (String) userInfo.getOrDefault("headimgurl", AvatarUtils.getRandomAvatar());
+        
+        // 检查是否已有该微信用户
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("wechatOpenId", openId);
+        User existingUser = userMapper.selectOne(queryWrapper);
+        
+        if (existingUser != null) {
+            // 用户已存在，直接登录
+            User safetyUser = getSafetyUser(existingUser);
+            request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
+            return safetyUser;
+        } else {
+            // 创建新用户
+            User newUser = new User();
+            newUser.setUserAccount("wechat_" + System.currentTimeMillis());
+            newUser.setUsername(nickname);
+            newUser.setAvatarUrl(avatarUrl);
+            newUser.setWechatOpenId(openId);
+            newUser.setUserPassword(DigestUtils.md5DigestAsHex((SALT + "default_password").getBytes())); // 设置默认密码
+            newUser.setLevel(1);
+            // 微信登录用户不自动设置城市，留空后由用户在个人信息页面手动设置
+            
+            boolean saveResult = this.save(newUser);
+            if (!saveResult) {
+                throw new BusinessException(ErrorCode.SAVE_ERROR);
+            }
+            
+            User safetyUser = getSafetyUser(newUser);
+            request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
+            return safetyUser;
+        }
+    }
+
+    /**
+     * QQ登录
+     */
+    @Override
+    public User qqLogin(String code, HttpServletRequest request) {
+        // 调用QQ OAuth2.0接口获取用户信息
+        String appId = socialLoginConfig.getQq().getAppId();
+        String appKey = socialLoginConfig.getQq().getAppKey();
+        String redirectUri = socialLoginConfig.getQq().getRedirectUri();
+        
+        if (appId == null || appKey == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "QQ登录未配置，请联系管理员");
+        }
+        
+        // 获取access_token
+        String accessToken = OAuth2Utils.getQQAccessToken(appId, appKey, code, redirectUri);
+        if (accessToken == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "QQ登录失败，无法获取访问令牌");
+        }
+        
+        // 获取openid
+        String openId = OAuth2Utils.getQQOpenId(accessToken);
+        if (openId == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "QQ登录失败，无法获取用户ID");
+        }
+        
+        // 获取用户信息
+        Map<String, Object> userInfo = OAuth2Utils.getQQUserInfo(appId, accessToken, openId);
+        if (userInfo == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "QQ登录失败，无法获取用户信息");
+        }
+        
+        String nickname = (String) userInfo.getOrDefault("nickname", "QQ用户");
+        String avatarUrl = (String) userInfo.getOrDefault("figureurl_qq_2", AvatarUtils.getRandomAvatar());
+        
+        // 检查是否已有该QQ用户
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("qqOpenId", openId);
+        User existingUser = userMapper.selectOne(queryWrapper);
+        
+        if (existingUser != null) {
+            // 用户已存在，直接登录
+            User safetyUser = getSafetyUser(existingUser);
+            request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
+            return safetyUser;
+        } else {
+            // 创建新用户
+            User newUser = new User();
+            newUser.setUserAccount("qq_" + System.currentTimeMillis());
+            newUser.setUsername(nickname);
+            newUser.setAvatarUrl(avatarUrl);
+            newUser.setQqOpenId(openId);
+            newUser.setUserPassword(DigestUtils.md5DigestAsHex((SALT + "default_password").getBytes())); // 设置默认密码
+            newUser.setLevel(1);
+            // QQ登录用户不自动设置城市，留空后由用户在个人信息页面手动设置
+            
+            boolean saveResult = this.save(newUser);
+            if (!saveResult) {
+                throw new BusinessException(ErrorCode.SAVE_ERROR);
+            }
+            
+            User safetyUser = getSafetyUser(newUser);
+            request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
+            return safetyUser;
+        }
     }
 
     /**
@@ -514,7 +657,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (CollectionUtils.isEmpty(searchTags)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-
+    
         // 优化1: 只查询必要的字段，减少数据传输
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.select("id", "username", "avatarUrl", "tags", "gender", "planetCode");
@@ -523,53 +666,72 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (loginUser != null) {
             queryWrapper.ne("id", loginUser.getId());
         }
-
+    
         List<User> userList = this.list(queryWrapper);
-
+    
         Gson gson = new Gson();
-
-        // 优化2: 使用并行流加速计算（适合多核CPU）
-        List<Pair<User, Long>> userDistanceList = userList.parallelStream()
+    
+        // 将搜索标签转换为大写，用于比较
+        Set<String> searchTagsUpper = searchTags.stream()
+                .map(String::toUpperCase)
+                .collect(Collectors.toSet());
+    
+        // 使用标签重叠度算法（改进版 Jaccard 相似度）
+        List<Pair<User, Double>> userScoreList = userList.parallelStream()
                 .map(user -> {
                     String tagsStr = user.getTags();
                     if (StringUtils.isBlank(tagsStr)) {
                         return null;
                     }
-
+    
                     try {
                         List<String> userTags = gson.fromJson(tagsStr, new TypeToken<List<String>>() {}.getType());
                         if (userTags == null || userTags.isEmpty()) {
                             return null;
                         }
-
-                        // 计算编辑距离
-                        long distance = AlgorithmUtils.minDistance(searchTags, userTags);
-                        return new Pair<>(user, distance);
+    
+                        // 将用户标签转换为大写
+                        Set<String> userTagsUpper = userTags.stream()
+                                .map(String::toUpperCase)
+                                .collect(Collectors.toSet());
+    
+                        // 计算交集
+                        Set<String> intersection = new HashSet<>(searchTagsUpper);
+                        intersection.retainAll(userTagsUpper);
+    
+                        // 计算并集
+                        Set<String> union = new HashSet<>(searchTagsUpper);
+                        union.addAll(userTagsUpper);
+    
+                        // Jaccard 相似度 = 交集 / 并集
+                        double similarity = union.isEmpty() ? 0 : (double) intersection.size() / union.size();
+    
+                        return new Pair<>(user, similarity);
                     } catch (Exception e) {
                         log.error("解析用户标签失败: {}", tagsStr, e);
                         return null;
                     }
                 })
-                .filter(Objects::nonNull)
+                .filter(pair -> pair != null && pair.getValue() > 0) // 只保留有匹配的用户
                 .collect(Collectors.toList());
-
-        // 优化3: 按编辑距离从小到大排序，并限制返回数量
-        List<Pair<User, Long>> sortedList = userDistanceList.stream()
-                .sorted(Comparator.comparingLong(Pair::getValue))
+    
+        // 按匹配度从高到低排序
+        List<Pair<User, Double>> sortedList = userScoreList.stream()
+                .sorted((pair1, pair2) -> Double.compare(pair2.getValue(), pair1.getValue()))
                 .limit(50)  // 先取前50个最匹配的
                 .collect(Collectors.toList());
-
-        // 优化4: 批量查询完整用户信息并进行脱敏处理
+    
+        // 批量查询完整用户信息并进行脱敏处理
         List<Long> userIds = sortedList.stream()
                 .map(Pair::getKey)
                 .map(User::getId)
                 .collect(Collectors.toList());
-
+    
         if (userIds.isEmpty()) {
             return new ArrayList<>();
         }
-
-        // 通过ID批量查询，确保数据完整性
+    
+        // 通过 ID 批量查询，确保数据完整性
         Map<Long, User> userMap = this.listByIds(userIds).stream()
                 .map(this::getSafetyUser)
                 .map(user -> {
@@ -580,15 +742,102 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                     return user;
                 })
                 .collect(Collectors.toMap(User::getId, u -> u));
-
+    
         // 保持排序顺序返回结果
         return sortedList.stream()
                 .map(Pair::getKey)
                 .map(User::getId)
                 .map(userMap::get)
                 .filter(Objects::nonNull)
-                .limit(30)  // 最终只返回前10个
+                .limit(30)  // 最终只返回前30个
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Map<String, Object>> searchUsersByTagsMatchWithScore(List<String> searchTags, User loginUser) {
+        if (CollectionUtils.isEmpty(searchTags)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+    
+        // 查询所有有标签的用户
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.select("id", "username", "avatarUrl", "tags", "gender", "planetCode");
+        queryWrapper.isNotNull("tags");
+        if (loginUser != null) {
+            queryWrapper.ne("id", loginUser.getId());
+        }
+    
+        List<User> userList = this.list(queryWrapper);
+        Gson gson = new Gson();
+    
+        // 将搜索标签转换为大写
+        Set<String> searchTagsUpper = searchTags.stream()
+                .map(String::toUpperCase)
+                .collect(Collectors.toSet());
+    
+        // 计算每个用户的 Jaccard 相似度
+        List<Map<String, Object>> resultWithScore = userList.parallelStream()
+                .map(user -> {
+                    String tagsStr = user.getTags();
+                    if (StringUtils.isBlank(tagsStr)) {
+                        return null;
+                    }
+    
+                    try {
+                        List<String> userTags = gson.fromJson(tagsStr, new TypeToken<List<String>>() {}.getType());
+                        if (userTags == null || userTags.isEmpty()) {
+                            return null;
+                        }
+    
+                        // 转换为大写集合
+                        Set<String> userTagsUpper = userTags.stream()
+                                .map(String::toUpperCase)
+                                .collect(Collectors.toSet());
+    
+                        // 计算 Jaccard 相似度
+                        Set<String> intersection = new HashSet<>(searchTagsUpper);
+                        intersection.retainAll(userTagsUpper);
+                        
+                        Set<String> union = new HashSet<>(searchTagsUpper);
+                        union.addAll(userTagsUpper);
+                        
+                        double similarity = union.isEmpty() ? 0 : (double) intersection.size() / union.size();
+    
+                        if (similarity <= 0) {
+                            return null; // 过滤掉没有匹配的用户
+                        }
+    
+                        // 构建结果 Map
+                        Map<String, Object> result = new HashMap<>();
+                        result.put("user", getSafetyUser(user));
+                        result.put("matchRate", (int)(similarity * 100)); // 转为百分比
+                        result.put("intersectionTags", intersection); // 共同标签
+                        result.put("totalSearchTags", searchTagsUpper.size());
+                        result.put("totalUserTags", userTagsUpper.size());
+                        
+                        // 注入头像
+                        if(StringUtils.isBlank(user.getAvatarUrl())) {
+                            result.put("avatarUrl", AvatarUtils.getAvatarByUserId(user.getId()));
+                        }
+                        
+                        return result;
+                    } catch (Exception e) {
+                        log.error("解析用户标签失败: {}", tagsStr, e);
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    
+        // 按匹配度从高到低排序
+        resultWithScore.sort((r1, r2) -> {
+            int rate1 = (Integer) r1.get("matchRate");
+            int rate2 = (Integer) r2.get("matchRate");
+            return Integer.compare(rate2, rate1); // 降序
+        });
+    
+        // 取前 30 个
+        return resultWithScore.subList(0, Math.min(30, resultWithScore.size()));
     }
 
 
@@ -741,94 +990,159 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
 
     /**
-     * 根据IP地址获取城市信息（使用高德地图API）
-     * @param ip IP地址
-     * @return 城市名称
+     * 第三方平台模拟登录（微信/QQ）
+     * 逻辑：
+     * 1. 查询 third_party_account 表，验证账号密码
+     * 2. 获取绑定的 user_id
+     * 3. 登录该用户
      */
-    private String getCityByIp(String ip) {
-        // 如果是本地IP，不返回"本地"，而是调用高德API获取真实城市
-        // 高德API支持不传IP参数，会自动获取请求来源的真实IP
-        String targetIp = ip;
-        if ("127.0.0.1".equals(ip) || "0:0:0:0:0:0:0:1".equals(ip) || "localhost".equals(ip)) {
-            // 本地开发环境，不传IP参数让高德自动识别
-            targetIp = null;
-            log.info("检测到本地IP，将调用高德API自动获取出口IP的城市信息");
+    @Override
+    public User thirdPartyLogin(com.zzkkyy.usercenter.model.request.ThirdPartyLoginRequest loginRequest, HttpServletRequest request) {
+        String platform = loginRequest.getPlatform();
+        String account = loginRequest.getAccount();
+        String password = loginRequest.getPassword();
+        
+        // 验证平台类型
+        if (!"wechat".equals(platform) && !"qq".equals(platform)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "不支持的平台类型");
         }
-            
-        try {
-            // 高德地图 IP 定位 API
-            String key = "e4cce6eaec0183cfd41abd573187b6f7";
-            String apiUrl;
-            if (targetIp != null) {
-                apiUrl = String.format(
-                    "https://restapi.amap.com/v3/ip?ip=%s&key=%s",
-                    targetIp, key
-                );
-            } else {
-                // 不传IP参数，高德会自动识别请求来源IP
-                apiUrl = String.format(
-                    "https://restapi.amap.com/v3/ip?key=%s",
-                    key
-                );
-            }
-                
-            log.info("调用高德IP定位API: {}", apiUrl);
-                
-            // 发送 HTTP 请求
-            URL url = new URL(apiUrl);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(5000);
-                
-            // 读取响应
-            BufferedReader reader = new BufferedReader(
-                new InputStreamReader(conn.getInputStream(), "UTF-8")
-            );
-            StringBuilder response = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                response.append(line);
-            }
-            reader.close();
-            conn.disconnect();
-                
-            String responseStr = response.toString();
-            log.info("高德API响应: {}", responseStr);
-                
-            // 解析 JSON 响应
-            Gson gson = new Gson();
-            Map<String, Object> resultMap = gson.fromJson(responseStr, Map.class);
-                
-            // 检查返回状态
-            String status = (String) resultMap.get("status");
-            if ("1".equals(status)) {
-                // 获取城市信息
-                String province = (String) resultMap.get("province");
-                String city = (String) resultMap.get("city");
-                    
-                // 组合省份和城市
-                if (StringUtils.isNotBlank(province) && StringUtils.isNotBlank(city)) {
-                    String result = province + " " + city;
-                    log.info("成功获取城市信息: {}", result);
-                    return result;
-                } else if (StringUtils.isNotBlank(province)) {
-                    log.info("成功获取省份信息: {}", province);
-                    return province;
-                } else if (StringUtils.isNotBlank(city)) {
-                    log.info("成功获取城市信息: {}", city);
-                    return city;
-                }
-            }
-                
-            // 如果获取失败，返回未知
-            log.warn("高德API获取城市失败，状态: {}", status);
-            return "未知";
-                
-        } catch (Exception e) {
-            log.error("调用高德API获取IP城市失败: {}", ip, e);
-            return "未知";
+        
+        // 查询第三方账号
+        QueryWrapper<ThirdPartyAccount> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("platform", platform);
+        queryWrapper.eq("account", account);
+        ThirdPartyAccount thirdPartyAccount = thirdPartyAccountMapper.selectOne(queryWrapper);
+        
+        if (thirdPartyAccount == null) {
+            throw new BusinessException(ErrorCode.NO_USER, "该账号未绑定，请先注册或绑定账号");
         }
+        
+        // 验证密码（第三方账号表使用纯MD5加密，不加盐）
+        String encryptedPassword = DigestUtils.md5DigestAsHex(password.getBytes());
+        if (!encryptedPassword.equals(thirdPartyAccount.getPassword())) {
+            log.error("密码验证失败 - 账号: {}, 平台: {}", account, platform);
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码错误");
+        }
+        
+        // 获取绑定的用户ID
+        Long userId = thirdPartyAccount.getUserId();
+        User user = userMapper.selectById(userId);
+        
+        if (user == null) {
+            throw new BusinessException(ErrorCode.NO_USER, "绑定的用户不存在");
+        }
+        
+        // 登录成功，设置session
+        User safetyUser = getSafetyUser(user);
+        request.getSession().setAttribute(USER_LOGIN_STATE, safetyUser);
+        
+        log.info("用户通过{}平台登录成功，第三方账号: {}, 绑定用户ID: {}", platform, account, userId);
+        return safetyUser;
+    }
+
+    /**
+     * 绑定第三方账号
+     */
+    @Override
+    public boolean bindThirdPartyAccount(Long userId, String platform, String account, String password) {
+        // 验证参数
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户ID无效");
+        }
+        if (!"wechat".equals(platform) && !"qq".equals(platform)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "不支持的平台类型");
+        }
+        if (account == null || account.trim().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号不能为空");
+        }
+        if (password == null || password.trim().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码不能为空");
+        }
+        
+        // 检查用户是否存在
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.NO_USER, "用户不存在");
+        }
+        
+        // 检查该平台的账号是否已被其他用户绑定
+        QueryWrapper<ThirdPartyAccount> checkWrapper = new QueryWrapper<>();
+        checkWrapper.eq("platform", platform);
+        checkWrapper.eq("account", account);
+        ThirdPartyAccount existing = thirdPartyAccountMapper.selectOne(checkWrapper);
+        if (existing != null && !existing.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "该账号已被其他用户绑定");
+        }
+        
+        // 如果已经绑定过，则更新密码
+        if (existing != null && existing.getUserId().equals(userId)) {
+            existing.setPassword(DigestUtils.md5DigestAsHex(password.getBytes()));
+            existing.setUpdateTime(new Date());
+            return thirdPartyAccountMapper.updateById(existing) > 0;
+        }
+        
+        // 创建新的绑定关系
+        ThirdPartyAccount thirdPartyAccount = new ThirdPartyAccount();
+        thirdPartyAccount.setUserId(userId);
+        thirdPartyAccount.setPlatform(platform);
+        thirdPartyAccount.setAccount(account);
+        thirdPartyAccount.setPassword(DigestUtils.md5DigestAsHex(password.getBytes()));
+        thirdPartyAccount.setCreateTime(new Date());
+        thirdPartyAccount.setUpdateTime(new Date());
+        
+        return thirdPartyAccountMapper.insert(thirdPartyAccount) > 0;
+    }
+
+    /**
+     * 解绑第三方账号
+     */
+    @Override
+    public boolean unbindThirdPartyAccount(Long userId, String platform) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户ID无效");
+        }
+        if (!"wechat".equals(platform) && !"qq".equals(platform)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "不支持的平台类型");
+        }
+        
+        QueryWrapper<ThirdPartyAccount> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("user_id", userId);
+        queryWrapper.eq("platform", platform);
+        
+        return thirdPartyAccountMapper.delete(queryWrapper) > 0;
+    }
+
+    /**
+     * 查询用户的第三方账号绑定情况
+     */
+    @Override
+    public java.util.List<com.zzkkyy.usercenter.model.domain.ThirdPartyAccount> getUserThirdPartyAccounts(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户ID无效");
+        }
+        
+        QueryWrapper<ThirdPartyAccount> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("user_id", userId);
+        
+        // 不返回密码字段
+        queryWrapper.select("id", "user_id", "platform", "account", "create_time", "update_time");
+        
+        return thirdPartyAccountMapper.selectList(queryWrapper);
+    }
+    
+    @Override
+    public List<User> getTopUsersByExperience(int limit) {
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        // User实体有@TableLogic注解，不需要手动添加is_delete条件
+        queryWrapper.orderByDesc("points")
+                .last("LIMIT " + limit);
+        
+        return userMapper.selectList(queryWrapper);
+    }
+    
+    @Override
+    public User getUserById(long userId) {
+        return userMapper.selectById(userId);
     }
 
 }

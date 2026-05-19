@@ -39,4 +39,14 @@ public class TeamUpdateRequest {
      */
     private String password;
 
+    /**
+     * 最大人数
+     */
+    private Integer maxNum;
+
+    /**
+     * 标签列表（JSON数组字符串）
+     */
+    private String tags;
+
 }

@@ -1,9 +1,6 @@
 package com.zzkkyy.usercenter.model.domain;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableLogic;
-import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 import org.springframework.format.annotation.DateTimeFormat;
 
@@ -20,57 +17,74 @@ public class Team {
      * id
      */
     @TableId(type = IdType.AUTO)
+    @TableField("id")
     private Long id;
 
     /**
      * 队伍昵称
      */
+    @TableField("name")
     private String name;
 
     /**
      * 描述
      */
+    @TableField("description")
     private String description;
+
+    /**
+     * 标签（JSON数组，用于分类）
+     */
+    @TableField("tags")
+    private String tags;
 
     /**
      * 最大人数
      */
+    @TableField("maxNum")
     private Integer maxNum;
 
     /**
      * 过期时间
      */
     @DateTimeFormat(pattern = "yyyy-MM-dd")
+    @TableField("expireTime")
     private Date expireTime;
 
     /**
      * 用户id
      */
+    @TableField("userId")
     private Long userId;
 
     /**
      * 0-公开，1-私有，2-加密
      */
+    @TableField("status")
     private Integer status;
 
     /**
      * 密码
      */
+    @TableField("password")
     private String password;
 
     /**
      * 创建时间
      */
+    @TableField("createTime")
     private Date createTime;
 
     /**
      * 跟新时间
      */
+    @TableField("updateTime")
     private Date updateTime;
 
     /**
      * 是否删除
      */
     @TableLogic
+    @TableField("isDelete")
     private Integer isDelete;
 }

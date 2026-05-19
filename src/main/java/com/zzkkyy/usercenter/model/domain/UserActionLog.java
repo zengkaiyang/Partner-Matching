@@ -17,31 +17,37 @@ public class UserActionLog implements Serializable {
      * ID
      */
     @TableId(type = IdType.AUTO)
+    @TableField("id")
     private Long id;
 
     /**
      * 用户ID
      */
+    @TableField("user_id")
     private Long userId;
 
     /**
      * 行为类型：post-发帖, comment-评论, share-转发, like-点赞
      */
+    @TableField("action_type")
     private String actionType;
 
     /**
      * 目标ID（帖子ID或攻略ID）
      */
+    @TableField("target_id")
     private Long targetId;
 
     /**
      * 获得积分
      */
+    @TableField("points_earned")
     private Integer pointsEarned;
 
     /**
      * 创建时间
      */
+    @TableField("create_time")
     private Date createTime;
 
     @TableField(exist = false)

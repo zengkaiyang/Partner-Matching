@@ -17,31 +17,37 @@ public class HiveTagStats implements Serializable {
      * ID
      */
     @TableId(type = IdType.AUTO)
+    @TableField("id")
     private Long id;
 
     /**
      * 标签名称
      */
+    @TableField("tag_name")
     private String tagName;
 
     /**
      * 标签分类
      */
+    @TableField("category")
     private String category;
 
     /**
      * 使用次数
      */
+    @TableField("total_count")
     private Integer totalCount;
 
     /**
      * 使用用户数
      */
+    @TableField("user_count")
     private Integer userCount;
 
     /**
      * 同步时间
      */
+    @TableField("sync_time")
     private Date syncTime;
 
     @TableField(exist = false)

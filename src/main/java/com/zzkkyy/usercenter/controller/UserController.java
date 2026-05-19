@@ -6,10 +6,16 @@ import com.zzkkyy.usercenter.common.BaseResponse;
 import com.zzkkyy.usercenter.common.ErrorCode;
 import com.zzkkyy.usercenter.common.ResultUtils;
 import com.zzkkyy.usercenter.exception.BusinessException;
+import com.zzkkyy.usercenter.model.domain.Tag;
 import com.zzkkyy.usercenter.model.domain.User;
 import com.zzkkyy.usercenter.model.request.UserLoginRequest;
 import com.zzkkyy.usercenter.model.request.UserRegisterRequest;
+import com.zzkkyy.usercenter.model.request.WechatLoginRequest;
+import com.zzkkyy.usercenter.model.request.QQLoginRequest;
+import com.zzkkyy.usercenter.model.request.ThirdPartyLoginRequest;
+import com.zzkkyy.usercenter.model.request.BindThirdPartyRequest;
 import com.zzkkyy.usercenter.model.vo.UserVO;
+import com.zzkkyy.usercenter.service.TagService;
 import com.zzkkyy.usercenter.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,7 +26,11 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -38,6 +48,9 @@ public class UserController {
 
     @Resource
     private UserService userService;
+
+    @Resource
+    private TagService tagService;
 
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
@@ -71,6 +84,130 @@ public class UserController {
         }
         User user =  userService.userLogin(userAccount , userPassword , request);
         return ResultUtils.success(user);
+    }
+
+    /**
+     * 微信登录
+     */
+    @PostMapping("/login/wechat")
+    public BaseResponse<User> wechatLogin(@RequestBody WechatLoginRequest wechatLoginRequest, HttpServletRequest request){
+        if(wechatLoginRequest == null || StringUtils.isBlank(wechatLoginRequest.getCode())){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        // 这里需要调用微信OAuth2.0接口获取用户信息
+        // 由于微信OAuth2.0需要配置appid和secret，这里先返回一个示例实现
+        User user = userService.wechatLogin(wechatLoginRequest.getCode(), request);
+        return ResultUtils.success(user);
+    }
+
+    /**
+     * QQ登录
+     */
+    @PostMapping("/login/qq")
+    public BaseResponse<User> qqLogin(@RequestBody QQLoginRequest qqLoginRequest, HttpServletRequest request){
+        if(qqLoginRequest == null || StringUtils.isBlank(qqLoginRequest.getCode())){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        // 这里需要调用QQ OAuth2.0接口获取用户信息
+        // 由于QQ OAuth2.0需要配置appid和secret，这里先返回一个示例实现
+        User user = userService.qqLogin(qqLoginRequest.getCode(), request);
+        return ResultUtils.success(user);
+    }
+
+    /**
+     * 第三方平台模拟登录（微信/QQ）
+     */
+    @PostMapping("/login/third-party")
+    public BaseResponse<User> thirdPartyLogin(@RequestBody ThirdPartyLoginRequest loginRequest, HttpServletRequest request){
+        if(loginRequest == null){
+            log.error("第三方登录请求为空");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求参数为空");
+        }
+        
+        log.info("收到第三方登录请求 - platform: {}, account: {}, password: {}", 
+                loginRequest.getPlatform(), loginRequest.getAccount(), 
+                loginRequest.getPassword() != null ? "***" : "null");
+        
+        if(StringUtils.isAnyBlank(loginRequest.getPlatform(), loginRequest.getAccount(), loginRequest.getPassword())){
+            log.error("第三方登录参数不完整 - platform: {}, account: {}, password: {}", 
+                    loginRequest.getPlatform(), loginRequest.getAccount(), 
+                    loginRequest.getPassword() != null ? "***" : "null");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "平台、账号和密码不能为空");
+        }
+        
+        User user = userService.thirdPartyLogin(loginRequest, request);
+        return ResultUtils.success(user);
+    }
+
+    /**
+     * 绑定第三方账号
+     */
+    @PostMapping("/bind-third-party")
+    public BaseResponse<Boolean> bindThirdParty(@RequestBody BindThirdPartyRequest bindRequest, HttpServletRequest request){
+        if(bindRequest == null){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求参数为空");
+        }
+        
+        // 获取当前登录用户
+        User loginUser = userService.getLoginUser(request);
+        
+        boolean result = userService.bindThirdPartyAccount(
+            loginUser.getId(), 
+            bindRequest.getPlatform(), 
+            bindRequest.getAccount(), 
+            bindRequest.getPassword()
+        );
+        
+        return ResultUtils.success(result);
+    }
+
+    /**
+     * 解绑第三方账号
+     */
+    @PostMapping("/unbind-third-party")
+    public BaseResponse<Boolean> unbindThirdParty(@RequestBody BindThirdPartyRequest bindRequest, HttpServletRequest request){
+        if(bindRequest == null || StringUtils.isBlank(bindRequest.getPlatform())){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求参数不完整");
+        }
+        
+        // 获取当前登录用户
+        User loginUser = userService.getLoginUser(request);
+        
+        boolean result = userService.unbindThirdPartyAccount(loginUser.getId(), bindRequest.getPlatform());
+        
+        return ResultUtils.success(result);
+    }
+
+    /**
+     * 查询用户的第三方账号绑定情况
+     */
+    @GetMapping("/third-party-accounts")
+    public BaseResponse<java.util.List<com.zzkkyy.usercenter.model.domain.ThirdPartyAccount>> getThirdPartyAccounts(HttpServletRequest request){
+        // 获取当前登录用户
+        User loginUser = userService.getLoginUser(request);
+        
+        java.util.List<com.zzkkyy.usercenter.model.domain.ThirdPartyAccount> accounts = 
+            userService.getUserThirdPartyAccounts(loginUser.getId());
+        
+        return ResultUtils.success(accounts);
+    }
+    
+    /**
+     * 获取指定用户的信息（公开）
+     */
+    @GetMapping("/{id}")
+    public BaseResponse<User> getUserById(@PathVariable long id) {
+        try {
+            User user = userService.getUserById(id);
+            if (user == null) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户不存在");
+            }
+            // 移除敏感字段
+            user.setUserPassword(null);
+            return ResultUtils.success(user);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "获取用户失败: " + e.getMessage());
+        }
     }
 
     @PostMapping("/logout")
@@ -271,6 +408,39 @@ public class UserController {
     }
 
     /**
+     * 获取随机热门标签（带使用次数）
+     * @param num 标签数量
+     * @return 随机热门标签列表
+     */
+    @GetMapping("/tags/hot-random")
+    public BaseResponse<List<Map<String, Object>>> getHotRandomTags(@RequestParam(defaultValue = "10") int num){
+        if(num <= 0 || num > 50){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        // 从 tag 表获取所有标签
+        List<Tag> allTags = tagService.list();
+        if(CollectionUtils.isEmpty(allTags)){
+            return ResultUtils.success(Collections.emptyList());
+        }
+        
+        // 随机打乱
+        Collections.shuffle(allTags);
+        
+        // 取前 num 个
+        List<Tag> randomTags = allTags.subList(0, Math.min(num, allTags.size()));
+        
+        // 转换为包含使用次数的格式
+        List<Map<String, Object>> result = randomTags.stream().map(tag -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("name", tag.getTagName());
+            map.put("count", tag.getUserCount() != null ? tag.getUserCount() : 0);
+            return map;
+        }).collect(Collectors.toList());
+        
+        return ResultUtils.success(result);
+    }
+
+    /**
      * 根据标签相似度搜索用户
      * @param tags 搜索标签
      * @param request HTTP请求
@@ -284,6 +454,24 @@ public class UserController {
         User loginUser = userService.getLoginUser(request);
         List<User> userList = userService.searchUsersByTagsMatch(tags, loginUser);
         return ResultUtils.success(userList);
+    }
+
+    /**
+     * 根据标签相似度搜索用户（带匹配度）
+     * @param tags 搜索标签
+     * @param request HTTP请求
+     * @return 匹配的用户列表及匹配度
+     */
+    @PostMapping("/search/tags/match/detailed")
+    public BaseResponse<List<Map<String, Object>>> searchUsersByTagsMatchDetailed(
+            @RequestBody List<String> tags,
+            HttpServletRequest request) {
+        if(CollectionUtils.isEmpty(tags)){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        User loginUser = userService.getLoginUser(request);
+        List<Map<String, Object>> resultWithScore = userService.searchUsersByTagsMatchWithScore(tags, loginUser);
+        return ResultUtils.success(resultWithScore);
     }
 
 

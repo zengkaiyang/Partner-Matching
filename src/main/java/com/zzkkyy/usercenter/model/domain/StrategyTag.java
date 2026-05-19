@@ -17,21 +17,25 @@ public class StrategyTag implements Serializable {
      * ID
      */
     @TableId(type = IdType.AUTO)
+    @TableField("id")
     private Long id;
 
     /**
      * 攻略ID
      */
+    @TableField("strategy_id")
     private Long strategyId;
 
     /**
      * 标签名称
      */
+    @TableField("tag_name")
     private String tagName;
 
     /**
      * 创建时间
      */
+    @TableField("create_time")
     private Date createTime;
 
     @TableField(exist = false)

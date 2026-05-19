@@ -30,8 +30,11 @@ public interface ProfileService {
     
     /**
      * 获取浏览历史
+     * @param userId 用户ID
+     * @param type 类型：forum-论坛帖子，strategy-攻略
+     * @param limit 限制数量
      */
-    List<BrowseHistory> getBrowseHistory(long userId, int limit);
+    List<BrowseHistory> getBrowseHistory(long userId, String type, int limit);
     
     /**
      * 关注用户

@@ -123,10 +123,18 @@ public class ProfileServiceImpl implements ProfileService {
     }
 
     @Override
-    public List<BrowseHistory> getBrowseHistory(long userId, int limit) {
+    public List<BrowseHistory> getBrowseHistory(long userId, String type, int limit) {
         QueryWrapper<BrowseHistory> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("user_id", userId)
-                .orderByDesc("browse_time")
+        queryWrapper.eq("user_id", userId);
+        
+        // 按类型筛选
+        if ("forum".equals(type)) {
+            queryWrapper.eq("content_type", "forum");
+        } else if ("strategy".equals(type)) {
+            queryWrapper.eq("content_type", "strategy");
+        }
+        
+        queryWrapper.orderByDesc("browse_time")
                 .last("LIMIT " + limit);
 
         return browseHistoryMapper.selectList(queryWrapper);

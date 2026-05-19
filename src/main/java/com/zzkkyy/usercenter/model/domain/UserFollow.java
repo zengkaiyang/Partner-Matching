@@ -17,21 +17,25 @@ public class UserFollow implements Serializable {
      * ID
      */
     @TableId(type = IdType.AUTO)
+    @TableField("id")
     private Long id;
 
     /**
      * 关注者ID
      */
+    @TableField("follower_id")
     private Long followerId;
 
     /**
      * 被关注者ID
      */
+    @TableField("following_id")
     private Long followingId;
 
     /**
      * 关注时间
      */
+    @TableField("create_time")
     private Date createTime;
 
     @TableField(exist = false)

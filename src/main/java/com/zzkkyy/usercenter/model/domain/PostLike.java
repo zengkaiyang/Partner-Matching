@@ -17,21 +17,25 @@ public class PostLike implements Serializable {
      * ID
      */
     @TableId(type = IdType.AUTO)
+    @TableField("id")
     private Long id;
 
     /**
      * 帖子ID
      */
+    @TableField("post_id")
     private Long postId;
 
     /**
      * 用户ID
      */
+    @TableField("user_id")
     private Long userId;
 
     /**
      * 创建时间
      */
+    @TableField("create_time")
     private Date createTime;
 
     @TableField(exist = false)

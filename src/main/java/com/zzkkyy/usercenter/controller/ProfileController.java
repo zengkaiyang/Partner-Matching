@@ -72,9 +72,20 @@ public class ProfileController {
     @Operation(summary = "浏览历史")
     public BaseResponse<List<BrowseHistory>> getBrowseHistory(
             @RequestParam long userId,
+            @RequestParam(defaultValue = "forum") String type,
             @RequestParam(defaultValue = "50") int limit) {
-        List<BrowseHistory> history = profileService.getBrowseHistory(userId, limit);
+        List<BrowseHistory> history = profileService.getBrowseHistory(userId, type, limit);
         return ResultUtils.success(history);
+    }
+
+    @PostMapping("/browse-history")
+    @Operation(summary = "记录浏览历史")
+    public BaseResponse<Boolean> addBrowseHistory(
+            @RequestParam long userId,
+            @RequestParam String contentType,
+            @RequestParam long contentId) {
+        profileService.addBrowseHistory(userId, contentType, contentId);
+        return ResultUtils.success(true);
     }
 
     @PostMapping("/follow")

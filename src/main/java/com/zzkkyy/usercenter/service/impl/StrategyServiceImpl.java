@@ -128,11 +128,19 @@ public class StrategyServiceImpl implements StrategyService {
     public Page<Strategy> listStrategies(int pageNum, int pageSize, String category, String type, String sortBy) {
         Page<Strategy> page = new Page<>(pageNum, pageSize);
         QueryWrapper<Strategy> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("is_delete", 0);
+        // Strategy实体有@TableLogic注解，自动处理逻辑删除
 
-        // 按分类筛选
+        // 按分类筛选（排除'all'，即显示所有分类）
+        log.info("接收到分类参数: {}", category);
         if (category != null && !category.isEmpty()) {
-            queryWrapper.eq("category", category);
+            if ("all".equalsIgnoreCase(category)) {
+                log.info("分类为'all'，不过滤，查询所有攻略");
+            } else {
+                log.info("按分类过滤: category = {}", category);
+                queryWrapper.eq("category", category);
+            }
+        } else {
+            log.info("未传递分类参数，查询所有攻略");
         }
 
         // 按类型筛选
@@ -140,12 +148,15 @@ public class StrategyServiceImpl implements StrategyService {
             queryWrapper.eq("type", type);
         }
 
-        // 排序
+        // 排序逻辑优化
         if ("hottest".equals(sortBy)) {
-            queryWrapper.orderByDesc("view_count", "like_count");
+            // 最热：综合浏览量和点赞数（浏览量权重更高）
+            queryWrapper.orderByDesc("view_count + like_count");
         } else if ("likes".equals(sortBy)) {
+            // 点赞最多：只按点赞数排序
             queryWrapper.orderByDesc("like_count");
         } else {
+            // 最新：默认按创建时间排序
             queryWrapper.orderByDesc("create_time");
         }
 
@@ -156,10 +167,10 @@ public class StrategyServiceImpl implements StrategyService {
     public Page<Strategy> searchStrategies(String keyword, int pageNum, int pageSize) {
         Page<Strategy> page = new Page<>(pageNum, pageSize);
         QueryWrapper<Strategy> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("is_delete", 0)
-                .and(wrapper -> wrapper.like("title", keyword)
-                        .or()
-                        .like("content", keyword));
+        // Strategy实体有@TableLogic注解，自动处理逻辑删除
+        queryWrapper.and(wrapper -> wrapper.like("title", keyword)
+                .or()
+                .like("content", keyword));
         queryWrapper.orderByDesc("create_time");
 
         return strategyMapper.selectPage(page, queryWrapper);
@@ -271,8 +282,8 @@ public class StrategyServiceImpl implements StrategyService {
     public Page<Strategy> getUserStrategies(long userId, int pageNum, int pageSize) {
         Page<Strategy> page = new Page<>(pageNum, pageSize);
         QueryWrapper<Strategy> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("is_delete", 0)
-                .eq("author_id", userId)
+        // Strategy实体有@TableLogic注解，自动处理逻辑删除
+        queryWrapper.eq("author_id", userId)
                 .orderByDesc("create_time");
 
         return strategyMapper.selectPage(page, queryWrapper);
@@ -295,8 +306,32 @@ public class StrategyServiceImpl implements StrategyService {
         }
 
         QueryWrapper<Strategy> strategyQuery = new QueryWrapper<>();
+        // Strategy实体有@TableLogic注解，自动处理逻辑删除
         strategyQuery.in("id", strategyIds)
-                .eq("is_delete", 0)
+                .orderByDesc("create_time");
+
+        return strategyMapper.selectPage(page, strategyQuery);
+    }
+
+    @Override
+    public Page<Strategy> getUserLikedStrategies(long userId, int pageNum, int pageSize) {
+        // 先查询用户点赞的攻略ID列表
+        QueryWrapper<StrategyLike> likeQuery = new QueryWrapper<>();
+        likeQuery.eq("user_id", userId).orderByDesc("create_time");
+        List<StrategyLike> likes = strategyLikeMapper.selectList(likeQuery);
+        List<Long> strategyIds = likes.stream()
+                .map(StrategyLike::getStrategyId)
+                .collect(java.util.stream.Collectors.toList());
+
+        // 分页查询攻略详情
+        Page<Strategy> page = new Page<>(pageNum, pageSize);
+        if (strategyIds.isEmpty()) {
+            return page;
+        }
+
+        QueryWrapper<Strategy> strategyQuery = new QueryWrapper<>();
+        // Strategy实体有@TableLogic注解，自动处理逻辑删除
+        strategyQuery.in("id", strategyIds)
                 .orderByDesc("create_time");
 
         return strategyMapper.selectPage(page, strategyQuery);
@@ -305,10 +340,15 @@ public class StrategyServiceImpl implements StrategyService {
     @Override
     public List<Strategy> getHotStrategies(int limit) {
         QueryWrapper<Strategy> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("is_delete", 0)
-                .orderByDesc("view_count", "like_count")
-                .last("LIMIT " + limit);
-
+        // Strategy实体有@TableLogic注解，自动处理逻辑删除
+        // 按热度排序：浏览量×0.3 + 点赞数×2 + 收藏数×1.5
+        queryWrapper.last("ORDER BY (view_count * 0.3 + like_count * 2 + favorite_count * 1.5) DESC LIMIT " + limit);
+        
         return strategyMapper.selectList(queryWrapper);
+    }
+    
+    @Override
+    public double calculateHeatScore(long viewCount, long likeCount, long favoriteCount) {
+        return viewCount * 0.3 + likeCount * 2 + favoriteCount * 1.5;
     }
 }
