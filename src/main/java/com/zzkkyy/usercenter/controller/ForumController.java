@@ -242,4 +242,109 @@ public class ForumController {
             return ResultUtils.error(ErrorCode.SYSTEM_ERROR, "获取数据失败: " + e.getMessage());
         }
     }
+
+    /**
+     * 发布帖子
+     */
+    @PostMapping("/post/add")
+    @Operation(summary = "发布帖子")
+    public BaseResponse<Long> addPost(
+            @RequestBody ForumPost post,
+            @RequestParam(required = false) String tags,
+            jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            // 获取当前登录用户
+            User loginUser = userService.getLoginUser(request);
+            
+            if (loginUser == null) {
+                return ResultUtils.error(ErrorCode.NO_AUTH, "请先登录");
+            }
+            
+            // 设置作者ID
+            post.setAuthorId(loginUser.getId());
+            
+            // 解析标签 - 支持多种格式
+            List<String> tagList = null;
+            if (tags != null && !tags.isEmpty()) {
+                try {
+                    // 尝试作为JSON数组解析
+                    if (tags.startsWith("[")) {
+                        tagList = new com.fasterxml.jackson.databind.ObjectMapper()
+                                .readValue(tags, new com.fasterxml.jackson.core.type.TypeReference<List<String>>(){});
+                    } else {
+                        // 如果是逗号分隔的字符串，直接分割
+                        String[] tagArray = tags.split(",");
+                        tagList = java.util.Arrays.stream(tagArray)
+                                .map(String::trim)
+                                .filter(t -> !t.isEmpty())
+                                .collect(java.util.stream.Collectors.toList());
+                    }
+                } catch (Exception e) {
+                    log.warn("标签解析失败，使用空列表: {}", tags, e);
+                    tagList = new java.util.ArrayList<>();
+                }
+            }
+            
+            long postId = forumPostService.addPost(post, tagList);
+            return ResultUtils.success(postId);
+        } catch (Exception e) {
+            log.error("发布帖子失败", e);
+            return ResultUtils.error(ErrorCode.SAVE_ERROR, "发布失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 删除帖子（管理员或作者）
+     */
+    @PostMapping("/post/delete")
+    @Operation(summary = "删除帖子")
+    public BaseResponse<Boolean> deletePost(@RequestParam long id) {
+        try {
+            // 管理员删除不需要userId参数，直接传入0
+            boolean result = forumPostService.deletePost(id, 0);
+            return ResultUtils.success(result);
+        } catch (Exception e) {
+            log.error("删除帖子失败", e);
+            return ResultUtils.error(ErrorCode.SYSTEM_ERROR, "删除失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 更新帖子
+     */
+    @PostMapping("/post/update")
+    @Operation(summary = "更新帖子")
+    public BaseResponse<Boolean> updatePost(
+            @RequestBody ForumPost post,
+            @RequestParam(required = false) String tags) {
+        try {
+            // 解析标签
+            List<String> tagList = null;
+            if (tags != null && !tags.isEmpty()) {
+                try {
+                    // 尝试作为JSON数组解析
+                    if (tags.startsWith("[")) {
+                        tagList = new com.fasterxml.jackson.databind.ObjectMapper()
+                                .readValue(tags, new com.fasterxml.jackson.core.type.TypeReference<List<String>>(){});
+                    } else {
+                        // 如果是逗号分隔的字符串，直接分割
+                        String[] tagArray = tags.split(",");
+                        tagList = java.util.Arrays.stream(tagArray)
+                                .map(String::trim)
+                                .filter(t -> !t.isEmpty())
+                                .collect(java.util.stream.Collectors.toList());
+                    }
+                } catch (Exception e) {
+                    log.warn("标签解析失败，使用空列表: {}", tags, e);
+                    tagList = new java.util.ArrayList<>();
+                }
+            }
+            
+            boolean result = forumPostService.updatePost(post, tagList);
+            return ResultUtils.success(result);
+        } catch (Exception e) {
+            log.error("更新帖子失败", e);
+            return ResultUtils.error(ErrorCode.SYSTEM_ERROR, "更新失败: " + e.getMessage());
+        }
+    }
 }

@@ -351,4 +351,9 @@ public class StrategyServiceImpl implements StrategyService {
     public double calculateHeatScore(long viewCount, long likeCount, long favoriteCount) {
         return viewCount * 0.3 + likeCount * 2 + favoriteCount * 1.5;
     }
+
+    @Override
+    public StrategyMapper getStrategyMapper() {
+        return strategyMapper;
+    }
 }

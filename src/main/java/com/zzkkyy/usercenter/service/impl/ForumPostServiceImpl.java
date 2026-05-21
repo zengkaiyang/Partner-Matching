@@ -568,4 +568,9 @@ public class ForumPostServiceImpl implements ForumPostService {
         log.info("删除评论成功，commentId: {}", commentId);
         return true;
     }
+
+    @Override
+    public ForumPostMapper getPostMapper() {
+        return forumPostMapper;
+    }
 }

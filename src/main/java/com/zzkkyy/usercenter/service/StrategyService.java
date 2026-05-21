@@ -90,4 +90,9 @@ public interface StrategyService {
      * 热度 = 浏览量 × 0.3 + 点赞数 × 2 + 收藏数 × 1.5
      */
     double calculateHeatScore(long viewCount, long likeCount, long favoriteCount);
+    
+    /**
+     * 获取StrategyMapper（用于统计）
+     */
+    com.zzkkyy.usercenter.mapper.StrategyMapper getStrategyMapper();
 }

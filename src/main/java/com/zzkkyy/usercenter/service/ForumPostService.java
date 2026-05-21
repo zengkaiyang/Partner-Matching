@@ -121,4 +121,9 @@ public interface ForumPostService {
      * 删除评论
      */
     boolean deleteComment(long commentId, long userId);
+    
+    /**
+     * 获取ForumPostMapper（用于统计）
+     */
+    com.zzkkyy.usercenter.mapper.ForumPostMapper getPostMapper();
 }

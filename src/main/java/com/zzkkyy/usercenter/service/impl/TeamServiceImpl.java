@@ -19,6 +19,7 @@ import com.zzkkyy.usercenter.model.request.TeamUpdateRequest;
 import com.zzkkyy.usercenter.model.vo.TeamUserVO;
 import com.zzkkyy.usercenter.model.vo.UserVO;
 import com.zzkkyy.usercenter.service.TeamService;
+import com.zzkkyy.usercenter.service.TeamTagService;
 import com.zzkkyy.usercenter.service.UserService;
 import com.zzkkyy.usercenter.service.UserTeamService;
 import io.micrometer.common.util.StringUtils;
@@ -39,6 +40,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 
 /**
 * @author Administrator
@@ -46,6 +48,7 @@ import java.util.concurrent.TimeUnit;
 * @createDate 2025-11-26 16:49:51
 */
 @Service
+@Slf4j
 public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
     implements TeamService {
 
@@ -57,6 +60,9 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
 
     @Resource
     private RedissonClient redissonClient;
+    
+    @Resource
+    private TeamTagService teamTagService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)  // 外层添加事务
@@ -230,6 +236,7 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public boolean updateTeam(TeamUpdateRequest teamUpdateRequest,User loginUser) {
         if (teamUpdateRequest == null){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
@@ -253,12 +260,33 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
             }
         }
         Team updateTeam = new Team();
-        try {
-            BeanUtils.copyProperties(updateTeam, teamUpdateRequest);
-        } catch (IllegalAccessException | InvocationTargetException e) {
-            throw new RuntimeException(e);
+        // 手动设置字段，避免 BeanUtils 的问题
+        updateTeam.setId(teamUpdateRequest.getId());
+        updateTeam.setName(teamUpdateRequest.getName());
+        updateTeam.setDescription(teamUpdateRequest.getDescription());
+        updateTeam.setStatus(teamUpdateRequest.getStatus());
+        updateTeam.setMaxNum(teamUpdateRequest.getMaxNum());
+        updateTeam.setExpireTime(teamUpdateRequest.getExpireTime());
+        updateTeam.setPassword(teamUpdateRequest.getPassword());
+        
+        log.info("更新队伍 - ID: {}, Name: {}", updateTeam.getId(), updateTeam.getName());
+        boolean result = this.updateById(updateTeam);
+        
+        // 更新标签
+        if (result && teamUpdateRequest.getTags() != null) {
+            try {
+                // 解析标签 JSON 字符串
+                List<String> tags = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readValue(teamUpdateRequest.getTags(), new com.fasterxml.jackson.core.type.TypeReference<List<String>>(){});
+                teamTagService.updateTeamTags(id, tags);
+                log.info("成功更新队伍标签 - teamId: {}, 标签数: {}", id, tags.size());
+            } catch (Exception e) {
+                log.error("更新队伍标签失败", e);
+                // 标签更新失败不影响队伍信息更新
+            }
         }
-        return this.updateById(updateTeam);
+        
+        return result;
     }
 
     @Override
@@ -493,6 +521,16 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
         }
         
         result.setMembers(members);
+        
+        // 获取队伍标签
+        List<String> tags = teamTagService.getTagsByTeamId(id);
+        if (!tags.isEmpty()) {
+            try {
+                result.setTags(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(tags));
+            } catch (Exception e) {
+                log.error("序列化标签失败", e);
+            }
+        }
         
         // 5. 设置是否已加入
         if (loginUser != null) {

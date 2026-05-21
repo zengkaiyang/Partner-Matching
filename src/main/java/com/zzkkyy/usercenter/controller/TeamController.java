@@ -74,6 +74,7 @@ public class TeamController {
     }
     @PostMapping("/update")
     public BaseResponse<Boolean> updateTeam(@RequestBody TeamUpdateRequest teamUpdateRequest,HttpServletRequest request) {
+        log.info("接收到的更新请求: id={}, name={}", teamUpdateRequest.getId(), teamUpdateRequest.getName());
         if (teamUpdateRequest == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
